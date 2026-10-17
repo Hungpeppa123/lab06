@@ -1,0 +1,4297 @@
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\main.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> tạo bộ khung những bước tôi cần làm để hoàn thiện bài tập này
+
+  Searched for 1 pattern, read 2 files (ctrl+o to expand)
+
+● Đề viết theo C#, nhưng bạn đang dùng Python (models.py và main.py đều đang
+  trống), nên khung dưới đây theo Python. Làm theo thứ tự này vì mỗi bước chỉ
+  phụ thuộc vào các bước trước nó.
+
+  Bước 0: Chốt các điểm đề còn mơ hồ
+
+  Đề có vài chỗ mâu thuẫn, bạn nên quyết định trước khi viết code (và hỏi lại
+  giảng viên nếu được):
+
+  ┌──────────────────────────────────┬──────────────────────────────────────┐
+  │              Vấn đề              │               Đề xuất                │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ Có hai enum DeviceStatus khác    │ Gộp thành một: AVAILABLE, BORROWED,  │
+  │ nhau (mục 2.1 và 2.2)            │ UNDER_MAINTENANCE, RETIRED           │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ Lúc gọi Device, lúc gọi          │ Dùng một lớp trừu tượng Device duy   │
+  │ TeachingDevice                   │ nhất                                 │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ Mượn theo "số ngày" (borrowDays) │ Giữ cả hai: due_date tính từ         │
+  │  hay "số tiết"                   │ borrow_days, tiết là thông tin kèm   │
+  │ (fromPeriod/toPeriod)            │ theo với from_period <= to_period    │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ Không có công thức tính phí trả  │ Tự đặt, ví dụ số ngày trễ × phí/ngày │
+  │ muộn                             │  của từng loại thiết bị              │
+  ├──────────────────────────────────┼──────────────────────────────────────┤
+  │ Mục "Các lớp dẫn xuất" để trống, │ Tự định nghĩa 3 lớp con theo mục 1   │
+  │  mục 4 bị thiếu                  │                                      │
+  └──────────────────────────────────┴──────────────────────────────────────┘
+
+  Bước 1: Enum và ngoại lệ (không phụ thuộc gì)
+
+  - DeviceStatus(Enum).
+  - BorrowingException(Exception) làm lớp cơ sở.
+  - Sáu lớp con, mỗi lớp lưu dữ liệu ngữ cảnh làm thuộc tính:
+    - DeviceUnavailableException: device_id, current_status
+    - BorrowLimitExceededException: borrower_id, maximum_devices
+    - InvalidBorrowPeriodException: device_id, requested_days, maximum_days
+      (dùng cho cả số ngày ≤ 0 lẫn vượt giới hạn của thiết bị)
+    - DuplicateDeviceException, DeviceNotInSlipException,
+      DeviceAlreadyReturnedException
+  - Nên thêm InvalidReturnDateException cho trường hợp ngày trả trước ngày mượn
+    (đề cho phép bổ sung nếu giải thích được).
+
+  Bước 2: Lớp trừu tượng Device và 3 lớp con
+
+  - Device(ABC) có mã, tên, năm sử dụng, giá mua, trạng thái, số ngày mượn tối
+    đa.
+  - Kiểm tra trong __init__: mã không rỗng, giá > 0, năm ≤ năm hiện tại.
+  - Mã thiết bị chỉ đọc: dùng @property không có setter.
+  - @abstractmethod calculate_annual_maintenance_cost().
+  - mark_as_borrowed(), mark_as_available(), và ghi đè __str__.
+  - Ba lớp con AirConditionerRemote, Microphone, ProjectorRemote, mỗi lớp có
+    công thức chi phí bảo trì và giới hạn mượn riêng (micro giới hạn 1 ngày để
+    khớp tình huống kiểm thử 11.2.4).
+
+  Bước 3: ClassRoom (kết tập)
+
+  - Thuộc tính: mã phòng, tên, sức chứa, danh sách thiết bị.
+  - add_device từ chối None và mã trùng.
+  - remove_device trả về bool, find_device trả về Device hoặc None.
+  - calculate_annual_maintenance_cost chỉ dùng
+    sum(d.calculate_annual_maintenance_cost() for d in ...), không có
+    isinstance.
+  - get_devices_requiring_maintenance: trạng thái UNDER_MAINTENANCE hoặc dùng
+    trên 5 năm.
+
+  Bước 4: Người mượn
+
+  - IBorrower(ABC) với borrower_id, full_name, get_maximum_devices().
+  - Lecturer trả về 3, TeachingAssistant trả về 2.
+
+  Bước 5: BorrowItem
+
+  - Thuộc tính: device, borrowed_date, due_date, from_period, to_period,
+    returned_date = None.
+  - Kiểm tra: device khác None, due_date >= borrowed_date, from_period <=
+    to_period.
+  - is_returned là property tính từ returned_date.
+  - return_item(returned_date): ném ngoại lệ nếu đã trả hoặc ngày trả trước ngày
+    mượn.
+
+  Bước 6: BorrowingSlip (hợp thành), phần khó nhất
+
+  - Kiểm tra slip_id, borrower, teaching_room trong __init__.
+  - items trả về tuple(self._items) để bên ngoài không sửa được.
+  - add_device(device, borrow_days): tách hàm _validate_borrowing kiểm tra đủ 5
+    điều kiện theo đúng thứ tự mục 9.1, cộng thêm giới hạn ngày của thiết bị.
+    Chỉ khi qua hết mới tạo item, đổi trạng thái, rồi thêm vào danh sách.
+  - return_device(device_id, returned_date): làm đúng 7 bước mục 9.3, trả về phí
+    trễ.
+  - calculate_total_late_fee().
+
+  Nguyên tắc cho cả lớp này: kiểm tra hết trước, thay đổi trạng thái sau. Đó là
+  cách đảm bảo yêu cầu nhất quán ở mục 9.2.
+
+  Bước 7: main.py với try / except / finally
+
+  - Luồng thành công (11.1): tạo giảng viên, 3 thiết bị, phiếu mượn; thêm điều
+    khiển máy chiếu và micro; trả máy chiếu đúng hạn; trả micro trễ 2 ngày; in
+    danh sách trả muộn và chưa trả.
+  - Luồng ngoại lệ (11.2): viết cả 7 tình huống, mỗi cái trong một khối try
+    riêng để một lỗi không chặn các tình huống sau.
+  - Bắt ngoại lệ cụ thể trước, BorrowingException sau cùng; finally in trạng
+    thái thiết bị và số item trong phiếu để chứng minh dữ liệu không đổi sau khi
+    thất bại.
+
+  Bước 8: Tự kiểm tra trước khi nộp
+
+  - Sau mỗi tình huống lỗi, trạng thái thiết bị và len(slip.items) có giữ nguyên
+    không?
+  - Có chỗ nào dùng isinstance để tính chi phí bảo trì không?
+  - Xóa phiếu (del slip) thì thiết bị và người mượn còn dùng được không?
+  - Có gán lại được device.device_id từ bên ngoài không?
+
+  Tổ chức file
+
+  Hai file hiện tại là đủ: toàn bộ lớp và ngoại lệ trong models.py, kịch bản
+  kiểm thử trong main.py. Nếu muốn gọn hơn, tách ngoại lệ ra exceptions.py.
+
+> borrowingslip laf gi
+
+● BorrowingSlip là phiếu mượn: một tờ ghi nhận "ai mượn những thiết bị nào, cho
+  phòng nào, vào ngày nào".
+
+  Hình dung như tờ phiếu giấy ở phòng thiết bị của trường:
+
+  PHIẾU MƯỢN  PM001
+  Người mượn: GV Nguyễn Văn A        ← borrower (IBorrower)
+  Phòng dạy:  B204                   ← teaching_room
+  Ngày mượn:  13/10/2026             ← borrowed_date
+  ---------------------------------
+  1. Điều khiển máy chiếu  | hạn 14/10 | đã trả 14/10    ← BorrowItem
+  2. Micro                 | hạn 14/10 | chưa trả        ← BorrowItem
+
+  Mỗi dòng trong phiếu là một BorrowItem. Phiếu là nơi chứa các dòng đó và thực
+  hiện ba việc:
+
+  - add_device: thêm một thiết bị vào phiếu, sau khi kiểm tra đủ điều kiện
+    (thiết bị đang sẵn sàng, chưa có trong phiếu, người mượn chưa vượt giới hạn,
+    số ngày hợp lệ).
+  - return_device: ghi nhận trả một thiết bị, đổi trạng thái thiết bị về sẵn
+    sàng và trả về phí trễ.
+  - calculate_total_late_fee: cộng phí trễ của tất cả các dòng.
+
+  Quan hệ giữa phiếu và các đối tượng khác là điểm đề muốn bạn phân biệt:
+
+  ┌──────────────────┬────────────────────┬─────────────────────────────────┐
+  │     Quan hệ      │        Loại        │             Ý nghĩa             │
+  ├──────────────────┼────────────────────┼─────────────────────────────────┤
+  │ Phiếu và         │ Hợp thành          │ Phiếu tự tạo ra các dòng; xóa   │
+  │ BorrowItem       │ (composition)      │ phiếu thì các dòng mất theo     │
+  ├──────────────────┼────────────────────┼─────────────────────────────────┤
+  │ Phiếu và người   │ Tham chiếu         │ Xóa phiếu, người mượn vẫn tồn   │
+  │ mượn             │                    │ tại                             │
+  ├──────────────────┼────────────────────┼─────────────────────────────────┤
+  │ BorrowItem và    │ Tham chiếu         │ Xóa phiếu, thiết bị vẫn còn     │
+  │ thiết bị         │                    │ trong hệ thống                  │
+  └──────────────────┴────────────────────┴─────────────────────────────────┘
+
+  Vì vậy trong code, BorrowItem được tạo bên trong add_device của phiếu, còn
+  người mượn và thiết bị được tạo ở ngoài rồi truyền vào.
+
+> thế còn borrowitem là quản lí thông tin thiết bị được mượn phải kh
+
+● Gần đúng, nhưng chính xác hơn: BorrowItem quản lý thông tin về một lần mượn
+  của một thiết bị, không phải thông tin của bản thân thiết bị.
+
+  ┌─────────────────────────────────────────────────────────────┬────────────┐
+  │                          Thông tin                          │ Nằm ở đâu  │
+  ├─────────────────────────────────────────────────────────────┼────────────┤
+  │ Mã, tên, giá mua, năm sử dụng, trạng thái                   │ Device     │
+  ├─────────────────────────────────────────────────────────────┼────────────┤
+  │ Mượn ngày nào, hạn trả, từ tiết nào đến tiết nào, đã trả    │ BorrowItem │
+  │ chưa, trả ngày nào                                          │            │
+  └─────────────────────────────────────────────────────────────┴────────────┘
+
+  BorrowItem chỉ giữ một tham chiếu tới thiết bị (self.device) rồi ghi thêm các
+  thông tin của lần mượn đó. Cùng một cái micro có thể được mượn nhiều lần trong
+  nhiều phiếu khác nhau: mỗi lần là một BorrowItem mới, còn đối tượng micro vẫn
+  chỉ có một.
+
+  Ngoài việc lưu dữ liệu, nó còn tự kiểm tra hai quy tắc của riêng mình trong
+  return_item:
+
+  - Không được trả hai lần.
+  - Ngày trả không được trước ngày mượn.
+
+  Còn các quy tắc liên quan đến cả phiếu (trùng thiết bị, vượt giới hạn số thiết
+  bị của người mượn) thì thuộc về BorrowingSlip, vì một dòng riêng lẻ không
+  biết các dòng khác trong phiếu.
+
+> tại sao dịch là dòng mượn
+
+● Đó không phải thuật ngữ chính thức, chỉ là cách tôi gọi theo hình ảnh tờ phiếu
+  giấy: mỗi thiết bị được mượn chiếm một dòng trên phiếu, nên tôi gọi mỗi
+  BorrowItem là một "dòng".
+
+  Dịch sát nghĩa thì "item" là mục, nên BorrowItem là "mục mượn". Trong các bài
+  quản lý ở Việt Nam, kiểu lớp này thường được gọi là chi tiết phiếu mượn, giống
+  cặp "hóa đơn" và "chi tiết hóa đơn": phiếu là phần chung, chi tiết là từng
+  thiết bị cụ thể trong phiếu.
+
+  Khi viết báo cáo hoặc trả lời giảng viên, bạn nên dùng "chi tiết phiếu mượn",
+  vì đó là cách gọi quen thuộc nhất.
+
+> kiểm tra xem sơ đồ này đã fit với khung mình đề ra chưa
+  ⎿  1 skill available
+
+● Sơ đồ khớp với khung ở hầu hết các điểm chính. Có 3 chỗ thiếu sẽ làm bạn kẹt
+  khi viết code và vài chỗ nên sửa nhỏ.
+
+  Những phần đã khớp
+
+  - Enum: đã gộp thành một DeviceStatus gồm 4 giá trị, đúng như Bước 0.
+  - Device: là lớp trừu tượng, deviceId chỉ đọc, có 3 lớp con. GetYearsInUse()
+    là phần thêm hay, dùng luôn cho điều kiện "dùng trên 5 năm".
+  - Ngày và tiết: BorrowItem có cả DueDate lẫn FromPeriod/ToPeriod, đúng cách xử
+    lý đã chọn ở Bước 0.
+  - Quan hệ: ClassRoom và Device dùng hình thoi rỗng (kết tập), BorrowingSlip và
+    BorrowItem dùng hình thoi đặc (hợp thành), BorrowItem tham chiếu Device. Cả
+    ba đều đúng.
+  - Kiểm tra trước khi thêm: có ValidateBorrowing để private, đúng tinh thần mục
+    9.2.
+  - Người mượn: IBorrower cùng Lecturer (3) và TeachingAssistant (2) đều có.
+  - Ngoại lệ: đủ 6 ngoại lệ bắt buộc và đã thêm InvalidReturnDateException.
+
+  Thiếu: sẽ không viết được code hoặc test
+
+  1. Không có cách đưa thiết bị vào trạng thái UnderMaintenance. Status chỉ có
+     {get;}, và chỉ có MarkAsBorrowed() với MarkAsAvailable(). Vì vậy tình huống
+     kiểm thử 11.2.1 (mượn điều hòa đang bảo trì) không dựng được. Cần thêm
+     MarkAsUnderMaintenance(), hoặc cho constructor nhận trạng thái ban đầu.
+  2. Không có dữ liệu để tính phí trễ. BorrowItem.CalculateLateFee() cần biết
+     phí mỗi ngày, nhưng Device không có thuộc tính nào cho việc này. Nên thêm #
+     lateFeePerDay : decimal vào Device, mỗi lớp con gán một giá trị khác nhau.
+  3. Không có cách lấy danh sách trả muộn và chưa trả (yêu cầu 11.1, bước 7).
+     Nên thêm:
+     - BorrowItem: IsLate() : bool
+     - BorrowingSlip: GetUnreturnedItems() và GetLateItems()
+
+  Nên sửa: không chặn code nhưng dễ bị trừ điểm
+
+  4. FromPeriod/ToPeriod có {get; set;} public, nên bên ngoài có thể gán from >
+     to mà không qua kiểm tra nào. Có hai cách sửa: đưa hai giá trị này vào
+     constructor BorrowItem(device, borrowed, due, fromPeriod, toPeriod) và bỏ
+     setter, hoặc giữ setter nhưng ghi chú là có kiểm tra.
+  5. maxPeriods có trong Device nhưng không được dùng ở đâu, vì AddDevice chỉ
+     nhận borrowDays. Hoặc thêm tham số tiết vào AddDevice và kiểm tra với
+     maxPeriods, hoặc bỏ thuộc tính này.
+  6. CalculateAnnualMaintenanceCost() trong Device phải ghi rõ {abstract} (hoặc
+     in nghiêng). Ba lớp con nên ghi {override}.
+  7. name không có getter. Nếu main cần in tên thiết bị ngoài ToString(), hãy
+     thêm + Name : string {get;}.
+
+  Lưu ý khi chuyển sang Python
+
+  Sơ đồ dùng kiểu C#, bạn chỉ cần đổi tương ứng:
+
+  ┌───────────────┬───────────────────────────┐
+  │      C#       │          Python           │
+  ├───────────────┼───────────────────────────┤
+  │ decimal       │ Decimal                   │
+  ├───────────────┼───────────────────────────┤
+  │ DateTime?     │ Optional[date]            │
+  ├───────────────┼───────────────────────────┤
+  │ IReadOnlyList │ trả về tuple              │
+  ├───────────────┼───────────────────────────┤
+  │ {get;}        │ @property không có setter │
+  ├───────────────┼───────────────────────────┤
+  │ interface     │ ABC                       │
+  └───────────────┴───────────────────────────┘
+
+  Sửa xong 3 chỗ thiếu ở trên là có thể bắt đầu viết models.py theo Bước 1 trở
+  đi.
+
+> đây là sơ đồ tôi xây dựng
+
+● Sơ đồ này đã sửa được gần hết các chỗ thiếu của bản trước. Còn 2 vấn đề cần
+  sửa trước khi viết code, cộng vài điểm nhỏ.
+
+  Các chỗ thiếu ở bản trước
+
+  ┌────────────────────────────┬────────────────────────────────────────────┐
+  │   Chỗ thiếu ở bản trước    │                  Bản này                   │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ Không đặt được trạng thái  │ Đã sửa: có mark_as_under_maintenance() và  │
+  │ UNDER_MAINTENANCE          │ tham số status trong __init__              │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ Không lấy được danh sách   │ Đã sửa: có is_late, get_late_days,         │
+  │ trả muộn và chưa trả       │ get_unreturned_items, get_late_items       │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ Tiết mượn có setter public │ Đã sửa: tiết được truyền qua constructor   │
+  │                            │ và không có setter                         │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ max_periods không được     │ Đã sửa: add_device và _validate_borrowing  │
+  │ dùng                       │ đã nhận from_period, to_period             │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ Phương thức trừu tượng     │ Đã sửa: có {abstract}                      │
+  │ chưa đánh dấu              │                                            │
+  ├────────────────────────────┼────────────────────────────────────────────┤
+  │ Không có dữ liệu tính phí  │ Vẫn thiếu (xem mục 1 bên dưới)             │
+  │ trễ                        │                                            │
+  └────────────────────────────┴────────────────────────────────────────────┘
+
+  1. Vẫn chưa biết phí trễ một ngày là bao nhiêu
+
+  get_late_days() cho biết số ngày trễ, nhưng không có chỗ nào lưu số tiền phạt
+  mỗi ngày. Vì vậy return_device() và calculate_total_late_fee() chưa có dữ liệu
+  để tính. Có hai cách:
+
+  - Thêm # _late_fee_per_day : float vào Device, mỗi lớp con gán một mức riêng
+    (cách này cho thấy rõ tính đa hình).
+  - Hoặc dùng một hằng số chung, ví dụ LATE_FEE_PER_DAY, trong BorrowingSlip.
+
+  Nên thêm + calculate_late_fee() : float vào BorrowItem để BorrowingSlip chỉ
+  việc cộng tổng.
+
+  2. Thiếu getter (@property): lớp này không đọc được dữ liệu của lớp kia
+
+  Bản C# trước có DeviceId {get;}, Status {get;}, Items {get;}, nhưng bản Python
+  chỉ còn thuộc tính private. Khi viết code, bạn sẽ cần những thuộc tính sau:
+
+  - ClassRoom.find_device cần device.device_id.
+  - _validate_borrowing cần device.status, device.max_borrow_days,
+    device.max_periods.
+  - return_device cần item.device, item.borrowed_date.
+  - main cần slip.items để in kết quả. Đề còn bắt buộc Items chỉ đọc
+    (IReadOnlyList), nên property này phải trả về tuple.
+
+  Cần thêm các dòng sau vào sơ đồ:
+
+  Device:        + device_id {get}, name {get}, status {get},
+                 + max_borrow_days {get}, max_periods {get}
+  BorrowItem:    + device {get}, borrowed_date {get}, due_date {get},
+                 + returned_date {get}
+  BorrowingSlip: + slip_id {get}, borrower {get}, teaching_room {get},
+                 + items : tuple[BorrowItem] {get}
+
+  Riêng {readOnly} của _device_id chỉ có ý nghĩa khi bạn có @property device_id
+  mà không có setter.
+
+  Tương tự, borrower_id và full_name trong IBorrower nên là thuộc tính trừu
+  tượng (@property + @abstractmethod), để Lecturer và TeachingAssistant bắt buộc
+  phải cài đặt.
+
+  Điểm nhỏ (không bắt buộc)
+
+  - Tiền tệ: đề dùng decimal, bạn dùng float. Với bài lab thì chấp nhận được,
+    nhưng dùng Decimal sẽ đúng ý đề hơn và tránh lỗi làm tròn kiểu 0.1 + 0.2.
+  - Nội dung get_late_days(as_of): cần thống nhất rằng nếu đã trả thì tính theo
+    returned_date, nếu chưa trả thì tính theo as_of.
+  - Ghi {override}: phương thức calculate_annual_maintenance_cost() trong 3 lớp
+    con nên ghi thêm {override}.
+  - Vượt giới hạn tiết: dùng lại InvalidBorrowPeriodException (các trường
+    requested/maximum vẫn hợp lý). Nên ghi chú điều này vào sơ đồ để người chấm
+    hiểu.
+
+  Sửa xong mục 1 và 2 là sơ đồ đủ để bắt đầu viết models.py.
+
+> python co ma ní
+
+● Nếu bạn hỏi Python có kiểu dữ liệu riêng cho tiền (money) không: không có.
+  Python dùng Decimal trong thư viện chuẩn decimal, tương đương decimal của C#.
+
+  from decimal import Decimal
+
+  print(0.1 + 0.2)                        # 0.30000000000000004  (float bị sai
+  số)
+  print(Decimal("0.1") + Decimal("0.2"))  # 0.3                  (Decimal tính
+  đúng)
+
+  Khi dùng Decimal, cần nhớ ba điều:
+
+  - Tạo từ chuỗi hoặc số nguyên: viết Decimal("15000") hoặc Decimal(15000). Đừng
+    viết Decimal(0.1), vì số thực đã mang sẵn sai số trước khi được chuyển.
+  - Không trộn với float: Decimal("1") + 0.5 sẽ báo TypeError. Phép tính với int
+    thì vẫn được, ví dụ Decimal("20000") * 2.
+  - Tổng ban đầu phải là Decimal: viết sum(..., Decimal("0")) để kết quả là
+    Decimal ngay cả khi danh sách rỗng.
+
+  Áp dụng vào bài:
+
+  class Microphone(Device):
+      def calculate_annual_maintenance_cost(self) -> Decimal:
+          return self.purchase_price * Decimal("0.10")
+
+  # trong BorrowItem
+  def calculate_late_fee(self, as_of) -> Decimal:
+      return self.get_late_days(as_of) * self.device.late_fee_per_day
+
+  Nếu dùng Decimal, hãy đổi các kiểu float trong sơ đồ (_purchase_price, các hàm
+  tính chi phí và phí trễ) thành Decimal.
+
+  Nếu "ma ní" ý bạn là thứ khác, bạn gõ lại giúp tôi nhé.
+
+> get ở đây là lấy thông tin thôi phải kh, có bắt buộc phải đưa vào sơ đồ không
+
+● Đúng, get chỉ là lấy thông tin ra để đọc. Trong Python, nó là @property không
+  có setter: bên ngoài đọc được device.device_id nhưng không gán lại được.
+
+  class Device:
+      @property
+      def device_id(self):
+          return self._device_id
+
+  d.device_id          # đọc được
+  d.device_id = "X"    # AttributeError: không gán được
+
+  Không bắt buộc liệt kê mọi getter vào sơ đồ. UML không có quy định nào ép việc
+  đó, và nhiều người bỏ qua để sơ đồ đỡ rối. Tuy nhiên, với bài này bạn nên đưa
+  vào một số getter, vì hai lý do:
+
+  1. Đề bài yêu cầu trực tiếp. "Mã thiết bị chỉ được thiết lập khi khởi tạo" và
+     Items : IReadOnlyList là yêu cầu chấm điểm. Nếu sơ đồ chỉ có - _device_id
+     (private), người chấm không thấy được lớp khác đọc mã thiết bị bằng cách
+     nào và không sửa được ra sao.
+  2. Các lớp khác cần dùng. ClassRoom cần đọc device_id, BorrowingSlip cần đọc
+     status. Không có getter thì sơ đồ trông như các lớp không giao tiếp được
+     với nhau.
+
+  Cách vẽ gọn nhất là thêm vào phần thuộc tính một dòng public có {readOnly},
+  thay vì liệt kê thành phương thức:
+
+  Device
+  - _device_id : str
+  - _status : DeviceStatus
+  ...
+  + device_id : str {readOnly}
+  + status : DeviceStatus {readOnly}
+
+  Nếu muốn tối giản hơn nữa, chỉ cần giữ những getter đề bắt buộc hoặc lớp khác
+  dùng tới:
+
+  - Device: device_id, status, max_borrow_days, max_periods
+  - BorrowItem: device
+  - BorrowingSlip: items (ghi rõ {readOnly}, trả về tuple)
+
+  Các getter còn lại như name, due_date cứ viết trong code bình thường, không
+  cần vẽ.
+
+> Mã thiết bị chỉ được thiết lập khi khởi tạo là sao
+
+● Nghĩa là mã thiết bị chỉ được gán đúng một lần, lúc tạo đối tượng (trong
+  __init__), sau đó không ai được đổi nữa.
+
+  Lý do là mã thiết bị giống số căn cước: dùng để nhận diện thiết bị. Nếu đổi
+  được giữa chừng, các nơi đang giữ mã cũ sẽ bị sai. Ví dụ phiếu mượn đang ghi
+  micro mã MIC01; nếu ai đó đổi mã thành MIC99, lúc trả MIC01 hệ thống sẽ không
+  tìm thấy, và ClassRoom có thể có hai thiết bị trùng mã.
+
+  So sánh hai cách viết:
+
+  # Không đạt: bên ngoài sửa thoải mái
+  class Device:
+      def __init__(self, device_id):
+          self.device_id = device_id
+
+  mic = Microphone("MIC01", ...)
+  mic.device_id = "MIC99"   # đổi được, sai yêu cầu
+
+  # Đạt: chỉ gán trong __init__, bên ngoài chỉ đọc
+  class Device:
+      def __init__(self, device_id):
+          if not device_id or not device_id.strip():
+              raise ValueError("Mã thiết bị không được rỗng")
+          self._device_id = device_id      # gán 1 lần duy nhất
+
+      @property
+      def device_id(self):                 # chỉ có get, không có setter
+          return self._device_id
+
+  mic = Microphone("MIC01", ...)
+  print(mic.device_id)      # MIC01, đọc được
+  mic.device_id = "MIC99"   # AttributeError, không đổi được
+
+  Trong C#, đề viết public string DeviceId { get; }: chỉ có get, nên chỉ gán
+  được trong constructor. Python không có cú pháp y hệt, nên cách tương đương là
+  _device_id + @property không có setter.
+
+  Python không cấm tuyệt đối: ai cố tình viết mic._device_id = "X" vẫn đổi được.
+  Dấu _ chỉ là quy ước "đây là nội bộ, đừng đụng vào". Với bài lab thì cách này
+  là đủ và đúng ý đề.
+
+> tại sao nếu không gán trong init mà gán trong setter thì lại thay đổi được
+
+● Vì __init__ và setter khác nhau ở thời điểm và số lần được gọi:
+
+  ┌──────────────┬─────────────────────────────┬───────────────────────────┐
+  │              │          __init__           │          setter           │
+  ├──────────────┼─────────────────────────────┼───────────────────────────┤
+  │ Khi nào chạy │ Chỉ một lần, lúc tạo đối    │ Mỗi khi có dòng           │
+  │              │ tượng                       │ obj.device_id = ...       │
+  ├──────────────┼─────────────────────────────┼───────────────────────────┤
+  │ Ai gọi       │ Python tự gọi khi viết      │ Bất kỳ đoạn code nào, bất │
+  │              │ Microphone(...)             │  kỳ lúc nào               │
+  ├──────────────┼─────────────────────────────┼───────────────────────────┤
+  │ Gọi lại được │ Không (bình thường không ai │ Được, gọi bao nhiêu lần   │
+  │  không       │  gọi lại)                   │ cũng được                 │
+  └──────────────┴─────────────────────────────┴───────────────────────────┘
+
+  Setter không phải chỗ để gán một lần. Nó là cánh cửa mở sẵn cho bên ngoài thay
+  đổi giá trị. Hễ có setter, dòng mic.device_id = "MIC99" sẽ chạy được:
+
+  class Device:
+      def __init__(self, device_id):
+          self.device_id = device_id        # dòng này gọi setter
+
+      @property
+      def device_id(self):
+          return self._device_id
+
+      @device_id.setter
+      def device_id(self, value):           # setter tồn tại...
+          if not value:
+              raise ValueError("Mã rỗng")
+          self._device_id = value
+
+  mic = Microphone("MIC01")   # setter chạy lần 1, hợp lệ
+  mic.device_id = "MIC99"     # setter chạy lần 2, vẫn hợp lệ, mã bị đổi
+
+  Setter chỉ kiểm tra giá trị có hợp lệ không (không rỗng); nó không kiểm tra có
+  được phép đổi không. "MIC99" là mã hợp lệ, nên lần gán thứ hai vẫn qua.
+
+  Ngược lại, khi không có setter, Python không có đường nào để xử lý phép gán
+  mic.device_id = ..., nên báo lỗi AttributeError. Cách duy nhất để có giá trị
+  là gán thẳng vào self._device_id bên trong __init__, và __init__ chỉ chạy một
+  lần.
+
+  Tóm lại:
+  - Có setter: đối tượng nói "cứ đổi đi, miễn giá trị hợp lệ".
+  - Không có setter, gán trong __init__: đối tượng nói "chỉ đặt lúc sinh ra, sau
+    đó không ai đổi được".
+
+  Yêu cầu "chỉ thiết lập khi khởi tạo" cần cách thứ hai.
+
+> ok giờ hãy cho tôi lại khung bài từng bước thiết lập cho bài tập này
+
+● Đây là khung bài cập nhật theo sơ đồ Python của bạn, cộng các sửa đổi đã chốt:
+  dùng Decimal, có @property, có phí trễ mỗi ngày. Làm theo thứ tự từ trên
+  xuống, vì mỗi bước chỉ dùng những gì đã có ở bước trước.
+
+  Bước 0: Chốt quy ước
+
+  ┌───────────────┬─────────────────────────────────────────────────────────┐
+  │   Nội dung    │                       Quyết định                        │
+  ├───────────────┼─────────────────────────────────────────────────────────┤
+  │ Tiền          │ Decimal, tạo từ chuỗi (Decimal("50000")), không trộn    │
+  │               │ với float                                               │
+  ├───────────────┼─────────────────────────────────────────────────────────┤
+  │ Ngày          │ date (từ datetime)                                      │
+  ├───────────────┼─────────────────────────────────────────────────────────┤
+  │ Thuộc tính    │ _ten private + @property để đọc; chỉ thêm setter khi    │
+  │               │ thật sự cần đổi                                         │
+  ├───────────────┼─────────────────────────────────────────────────────────┤
+  │ Danh sách chỉ │ property trả về tuple(...)                              │
+  │  đọc          │                                                         │
+  ├───────────────┼─────────────────────────────────────────────────────────┤
+  │ File          │ models.py chứa enum, ngoại lệ, các lớp; main.py chứa    │
+  │               │ kịch bản kiểm thử                                       │
+  └───────────────┴─────────────────────────────────────────────────────────┘
+
+  Thêm vào sơ đồ (nếu chưa có):
+  - _late_fee_per_day trong Device.
+  - calculate_late_fee() trong BorrowItem.
+  - Các getter {readOnly}.
+
+  Bước 1: Import và enum DeviceStatus
+
+  - from enum import Enum, from abc import ABC, abstractmethod, from datetime
+    import date, from decimal import Decimal.
+  - DeviceStatus gồm 4 giá trị: AVAILABLE, BORROWED, UNDER_MAINTENANCE, RETIRED.
+
+  Bước 2: Hệ phân cấp ngoại lệ
+
+  - BorrowingException(Exception): __init__(self, message) gọi
+    super().__init__(message).
+  - Mỗi lớp con: nhận dữ liệu ngữ cảnh, lưu thành thuộc tính, tự tạo message rồi
+    gọi super().__init__(message):
+
+  ┌────────────────────────────────┬─────────────────────────────────────────┐
+  │            Ngoại lệ            │               Thuộc tính                │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ DeviceUnavailableException     │ device_id, current_status               │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ BorrowLimitExceededException   │ borrower_id, maximum_devices            │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ InvalidBorrowPeriodException   │ device_id, requested, maximum (dùng cho │
+  │                                │  cả ngày và tiết)                       │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ DuplicateDeviceException       │ device_id                               │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ DeviceNotInSlipException       │ device_id, slip_id                      │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ DeviceAlreadyReturnedException │ device_id, returned_date                │
+  ├────────────────────────────────┼─────────────────────────────────────────┤
+  │ InvalidReturnDateException     │ borrowed_date, returned_date            │
+  └────────────────────────────────┴─────────────────────────────────────────┘
+
+  Lỗi dữ liệu đầu vào cơ bản (mã rỗng, giá ≤ 0, None) dùng ValueError hoặc
+  TypeError có sẵn của Python. Các ngoại lệ ở bảng trên dành cho lỗi nghiệp vụ.
+
+  Bước 3: Lớp trừu tượng Device
+
+  1. __init__(device_id, name, year, price, max_days, max_periods,
+     late_fee_per_day, status=AVAILABLE), kiểm tra trước khi gán:
+     - mã không rỗng
+     - giá > 0
+     - năm ≤ date.today().year
+     - max_days, max_periods > 0
+  2. Property chỉ đọc: device_id, name, status, max_borrow_days, max_periods,
+     late_fee_per_day.
+  3. get_years_in_use(): năm hiện tại trừ năm đưa vào sử dụng.
+  4. @abstractmethod calculate_annual_maintenance_cost() -> Decimal.
+  5. Đổi trạng thái: mark_as_borrowed(), mark_as_available(),
+     mark_as_under_maintenance().
+  6. __str__: trả về chuỗi gồm mã, tên, trạng thái.
+
+  Tự kiểm tra: Device(...) phải báo lỗi vì là lớp trừu tượng, và d.device_id =
+  "X" phải báo AttributeError.
+
+  Bước 4: Ba lớp con
+
+  - AirConditionerRemote(..., supported_model), Microphone(..., is_wireless),
+    ProjectorRemote(..., projector_brand).
+  - Mỗi lớp gọi super().__init__(...) với giới hạn riêng. Micro phải có max_days
+    = 1 để khớp tình huống kiểm thử 11.2.4.
+  - Mỗi lớp ghi đè calculate_annual_maintenance_cost() bằng công thức riêng. Ví
+    dụ: micro không dây tốn hơn micro có dây; chi phí tăng theo số năm sử dụng.
+
+  Bước 5: ClassRoom (kết tập)
+
+  - __init__(room_id, room_name, capacity), kiểm tra hợp lệ, _devices = [].
+  - add_device(device): báo lỗi nếu None hoặc trùng mã (gọi find_device để kiểm
+    tra).
+  - remove_device(device_id) -> bool.
+  - find_device(device_id) -> Device | None.
+  - calculate_annual_maintenance_cost():
+    sum((d.calculate_annual_maintenance_cost() for d in ...), Decimal("0")).
+    Không dùng isinstance.
+  - get_devices_requiring_maintenance(): trạng thái UNDER_MAINTENANCE hoặc
+    get_years_in_use() > 5.
+
+  Bước 6: IBorrower, Lecturer, TeachingAssistant
+
+  - IBorrower(ABC): borrower_id và full_name là @property + @abstractmethod;
+    get_maximum_devices() là @abstractmethod.
+  - Lecturer trả về 3, TeachingAssistant trả về 2. Cả hai kiểm tra id và tên
+    không rỗng.
+
+  Bước 7: BorrowItem (chi tiết phiếu mượn)
+
+  1. __init__(device, borrowed_date, due_date, from_period, to_period), kiểm
+     tra:
+     - device không None
+     - due_date >= borrowed_date
+     - 1 <= from_period <= to_period
+     - _returned_date = None
+  2. Property chỉ đọc: device, borrowed_date, due_date, from_period, to_period,
+     returned_date.
+  3. is_returned(): trả về _returned_date is not None.
+  4. mark_returned(returned_date):
+     - đã trả rồi thì ném DeviceAlreadyReturnedException
+     - ngày trả < ngày mượn thì ném InvalidReturnDateException
+     - qua hết mới gán _returned_date
+  5. get_late_days(as_of): đã trả thì dùng returned_date, chưa trả thì dùng
+     as_of; trả về max(0, mốc - due_date) tính theo ngày.
+  6. is_late(as_of): get_late_days(as_of) > 0.
+  7. calculate_late_fee(as_of): get_late_days(as_of) * device.late_fee_per_day.
+
+  Bước 8: BorrowingSlip (hợp thành), phần quan trọng nhất
+
+  1. __init__(slip_id, borrower, teaching_room, borrowed_date): kiểm tra hợp lệ,
+     _items = [].
+  2. Property: slip_id, borrower, teaching_room, borrowed_date, và items trả về
+     tuple(self._items).
+  3. _validate_borrowing(device, borrow_days, from_period, to_period), kiểm tra
+     theo đúng thứ tự:
+     a. device is None: TypeError hoặc ValueError
+     b. borrow_days <= 0 hoặc > device.max_borrow_days:
+        InvalidBorrowPeriodException
+     c. số tiết > device.max_periods: InvalidBorrowPeriodException
+     d. thiết bị đã có trong phiếu: DuplicateDeviceException
+     e. len(_items) >= borrower.get_maximum_devices():
+        BorrowLimitExceededException
+     f. device.status != AVAILABLE: DeviceUnavailableException
+  4. add_device(device, borrow_days, from_period=1, to_period=1), thứ tự cố
+     định:
+     a. _validate_borrowing(...)
+     b. tạo BorrowItem (nếu constructor lỗi thì chưa có gì bị thay đổi)
+     c. device.mark_as_borrowed()
+     d. _items.append(item)
+  5. _find_item(device_id): hàm private, trả về item hoặc None.
+  6. return_device(device_id, returned_date) -> Decimal, làm đúng 7 bước mục
+     9.3:
+     a. kiểm tra device_id
+     b. tìm item
+     c. không thấy thì ném DeviceNotInSlipException
+     d. gọi item.mark_returned(returned_date), trong đó đã kiểm tra trả hai lần
+        và ngày trả
+     e. device.mark_as_available()
+     f. trả về item.calculate_late_fee(returned_date)
+  7. calculate_total_late_fee(as_of): tổng phí trễ của các item.
+  8. get_unreturned_items(), get_late_items(as_of).
+
+  Nguyên tắc của lớp này: kiểm tra hết trước, thay đổi trạng thái sau cùng.
+
+  Bước 9: main.py, luồng thành công (11.1)
+
+  1. Tạo Lecturer.
+  2. Tạo 1 điều khiển máy chiếu, 1 điều khiển điều hòa, 1 micro không dây; cho
+     vào một ClassRoom.
+  3. Tạo BorrowingSlip cho phòng dạy, ngày mượn cố định (ví dụ date(2026, 10,
+     1)) để kết quả không đổi giữa các lần chạy.
+  4. Thêm máy chiếu và micro vào phiếu.
+  5. Trả máy chiếu đúng hạn, in phí (bằng 0).
+  6. Trả micro trễ 2 ngày, in phí.
+  7. In danh sách trả muộn và chưa trả, tổng phí, tổng chi phí bảo trì của
+     phòng.
+
+  Bước 10: main.py, luồng ngoại lệ (11.2)
+
+  Viết một hàm cho mỗi tình huống, mỗi hàm có try / except / finally riêng:
+
+  ┌─────┬───────────────────────────────────┬────────────────────────────────┐
+  │  #  │            Tình huống             │       Ngoại lệ mong đợi        │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 1   │ Mượn điều hòa đang                │ DeviceUnavailableException     │
+  │     │ UNDER_MAINTENANCE                 │                                │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 2   │ Trợ giảng mượn thiết bị thứ 3     │ BorrowLimitExceededException   │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 3   │ Thêm cùng micro hai lần           │ DuplicateDeviceException       │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 4   │ Mượn micro 3 ngày (giới hạn 1)    │ InvalidBorrowPeriodException   │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 5   │ Trả máy chiếu không thuộc phiếu   │ DeviceNotInSlipException       │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 6   │ Trả cùng thiết bị hai lần         │ DeviceAlreadyReturnedException │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 7   │ Ngày trả trước ngày mượn          │ InvalidReturnDateException     │
+  └─────┴───────────────────────────────────┴────────────────────────────────┘
+
+  - except ngoại lệ cụ thể trước, except BorrowingException sau cùng.
+  - finally in trạng thái thiết bị và len(slip.items), để chứng minh dữ liệu
+    không bị thay đổi khi thao tác thất bại.
+
+  Bước 11: Tự kiểm tra trước khi nộp
+
+  - [ ] Sau mỗi tình huống lỗi, trạng thái thiết bị và số item vẫn như trước.
+  - [ ] d.device_id = "X" và slip.items.append(...) đều không làm được.
+  - [ ] Không có isinstance trong phần tính chi phí bảo trì.
+  - [ ] del slip xong, thiết bị và người mượn vẫn dùng được.
+  - [ ] Sơ đồ UML khớp với code: tên hàm, tham số, property.
+  - [ ] Chuẩn bị giải thích vì sao thêm InvalidReturnDateException (đề cho phép
+    bổ sung nếu giải thích được lý do).
+
+  Gợi ý: viết xong bước nào thì chạy thử ngay bằng vài dòng nhỏ cuối file, đừng
+  đợi đến Bước 9 mới chạy.
+
+> không có phương thức chính xác để tính late fee nên tôi nghĩ tôi sẽ chỉ định
+  nghĩa hàm đó và pass qua nếu sau này có cải tiến thì sẽ phát triển lại phương
+  thức late fee
+
+● Ý tưởng để lại chỗ cho sau này cải tiến là hợp lý, nhưng pass sẽ làm chương
+  trình bị lỗi. Lý do: hàm chỉ có pass sẽ trả về None, mà các chỗ khác đang chờ
+  một con số:
+
+  def calculate_late_fee(self, as_of):
+      pass                      # trả về None
+
+  # trong BorrowingSlip
+  def calculate_total_late_fee(self, as_of):
+      return sum((i.calculate_late_fee(as_of) for i in self._items),
+  Decimal("0"))
+      # Decimal("0") + None → TypeError
+
+  Ngoài ra, đề bắt buộc return_device(...) -> decimal và
+  calculate_total_late_fee(). Trả None nghĩa là không đúng chữ ký đề yêu cầu, và
+  người chấm sẽ thấy phần "trả micro muộn 2 ngày" không hiển thị được gì.
+
+  Có hai cách vẫn giữ được ý định "làm sau":
+
+  Cách 1: trả về 0, giữ đúng kiểu dữ liệu
+
+  def calculate_late_fee(self, as_of: date) -> Decimal:
+      # Đề chưa quy định cách tính phí trễ, tạm thời trả 0.
+      # TODO: cập nhật khi có quy định
+      return Decimal("0")
+
+  Chương trình chạy được, nhưng phí trễ luôn bằng 0. Chỗ yếu là kết quả kiểm thử
+  11.1 sẽ không cho thấy gì khác biệt giữa trả đúng hạn và trả muộn.
+
+  Cách 2 (khuyên dùng): công thức đơn giản nhất, ghi rõ là giả định
+
+  LATE_FEE_PER_DAY = Decimal("10000")  # Giả định: đề không quy định mức phí
+
+  def calculate_late_fee(self, as_of: date) -> Decimal:
+      return self.get_late_days(as_of) * LATE_FEE_PER_DAY
+
+  Cách này chỉ thêm một dòng, nhưng micro trả muộn 2 ngày sẽ hiện ra 20000, kết
+  quả kiểm thử có ý nghĩa. Khi muốn cải tiến, bạn chỉ sửa đúng hàm này;
+  return_device và calculate_total_late_fee không phải đổi gì. Cách này cũng cho
+  phép bỏ _late_fee_per_day khỏi Device để sơ đồ đơn giản hơn.
+
+  Dù chọn cách nào, nên giữ get_late_days() và is_late() hoạt động thật, vì
+  get_late_items() (hiển thị phiếu trả muộn trong 11.1) phụ thuộc vào chúng chứ
+  không phụ thuộc vào số tiền.
+
+> ok giả định là chậm 1 ngày thì thêm 10000 đi
+
+● Được, chốt giả định phí trễ 10.000 cho mỗi ngày trễ, áp dụng như nhau cho mọi
+  loại thiết bị.
+
+  Phần code liên quan:
+
+  # Đầu models.py
+  # Giả định: đề không quy định mức phí trễ, chọn 10.000 / ngày
+  LATE_FEE_PER_DAY = Decimal("10000")
+
+  # Trong BorrowItem
+  def get_late_days(self, as_of: date) -> int:
+      end = self._returned_date if self._returned_date is not None else as_of
+      return max(0, (end - self._due_date).days)
+
+  def is_late(self, as_of: date) -> bool:
+      return self.get_late_days(as_of) > 0
+
+  def calculate_late_fee(self, as_of: date) -> Decimal:
+      return self.get_late_days(as_of) * LATE_FEE_PER_DAY
+
+  Kết quả mong đợi ở luồng thành công 11.1:
+  - Máy chiếu trả đúng hạn: phí 0.
+  - Micro trả muộn 2 ngày: phí 20000.
+
+  Vì vậy khung bài đổi như sau:
+  - Bước 0: thêm quy ước "phí trễ = số ngày trễ × 10.000, hằng số
+    LATE_FEE_PER_DAY".
+  - Bước 3: bỏ tham số và thuộc tính late_fee_per_day khỏi Device.
+  - Sơ đồ UML: bỏ _late_fee_per_day khỏi Device; giữ calculate_late_fee(as_of) :
+    Decimal trong BorrowItem. Nên thêm một ghi chú (note) cạnh BorrowItem: "Giả
+    định: 10.000/ngày trễ".
+
+  Các bước còn lại giữ nguyên.
+
+> ok giờ cho toi lại 1 cái khung bài hoàn chỉnh nào
+
+● Đây là khung bài hoàn chỉnh, đã gộp mọi thay đổi: Python, Decimal, @property,
+  phí trễ 10.000/ngày. Làm theo thứ tự từ trên xuống.
+
+  Bước 0: Quy ước chung
+
+  ┌────────────────┬────────────────────────────────────────────────────────┐
+  │    Nội dung    │                       Quyết định                       │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Tiền           │ Decimal, tạo từ chuỗi (Decimal("50000")), không trộn   │
+  │                │ với float                                              │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Ngày           │ date (từ datetime)                                     │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Thuộc tính     │ _ten private + @property để đọc; không có setter nếu   │
+  │                │ không cần đổi                                          │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Danh sách chỉ  │ property trả về tuple(...)                             │
+  │ đọc            │                                                        │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Phí trễ        │ Giả định: LATE_FEE_PER_DAY = Decimal("10000") × số     │
+  │                │ ngày trễ                                               │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Lỗi đầu vào cơ │ ValueError / TypeError (mã rỗng, giá ≤ 0, None)        │
+  │  bản           │                                                        │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ Lỗi nghiệp vụ  │ Các lớp con của BorrowingException                     │
+  ├────────────────┼────────────────────────────────────────────────────────┤
+  │ File           │ models.py chứa enum, ngoại lệ, các lớp; main.py chứa   │
+  │                │ kịch bản kiểm thử                                      │
+  └────────────────┴────────────────────────────────────────────────────────┘
+
+  Bước 1: Import, hằng số, enum
+
+  - from enum import Enum, from abc import ABC, abstractmethod, from datetime
+    import date, from decimal import Decimal.
+  - LATE_FEE_PER_DAY = Decimal("10000"), kèm comment ghi rõ đây là giả định.
+  - DeviceStatus: AVAILABLE, BORROWED, UNDER_MAINTENANCE, RETIRED.
+
+  Bước 2: Hệ phân cấp ngoại lệ
+
+  - BorrowingException(Exception) với __init__(self, message).
+  - Mỗi lớp con: lưu dữ liệu ngữ cảnh thành thuộc tính, tự tạo message, rồi gọi
+    super().__init__(message).
+
+  ┌─────────────────────────────────┬────────────────────┬──────────────────┐
+  │            Ngoại lệ             │     Thuộc tính     │     Khi nào      │
+  ├─────────────────────────────────┼────────────────────┼──────────────────┤
+  │ DeviceUnavailableException      │ device_id,         │ Thiết bị không   │
+  │                                 │ current_status     │ AVAILABLE        │
+  ├─────────────────────────────────┼────────────────────┼──────────────────┤
+  │ BorrowLimitExceededException    │ borrower_id,       │ Phiếu đã đủ số   │
+  │                                 │ maximum_devices    │ thiết bị tối đa  │
+  ├─────────────────────────────────┼────────────────────┼──────────────────┤
+  │                                 │ device_id,         │ Số ngày ≤ 0,     │
+  │ InvalidBorrowPeriodException    │ requested, maximum │ vượt giới hạn    │
+  │                                 │                    │ ngày hoặc tiết   │
+  ├─────────────────────────────────┼────────────────────┼──────────────────┤
+  │ DuplicateDeviceException        │ device_id          │ Thiết bị đã có   │
+  │                                 │                    │ trong phiếu      │
+  ├─────────────────────────────────┼────────────────────┼──────────────────┤
+  │                                 │                    │ Trả thiết bị     │
+  │ DeviceNotInSlipException        │ device_id, slip_id │ không thuộc      │
+  │                                 │                    │ phiếu            │
+  ├─────────────────────────────────┼────────────────────┼──────────────────┤
+  │ DeviceAlreadyReturnedException  │ device_id,         │ Trả lần thứ hai  │
+  │                                 │ returned_date      │                  │
+  ├─────────────────────────────────┼────────────────────┼──────────────────┤
+  │ InvalidReturnDateException (bổ  │ borrowed_date,     │ Ngày trả trước   │
+  │ sung)                           │ returned_date      │ ngày mượn        │
+  └─────────────────────────────────┴────────────────────┴──────────────────┘
+
+  Bước 3: Lớp trừu tượng Device(ABC)
+
+  1. __init__(device_id, name, year, price, max_days, max_periods,
+     status=DeviceStatus.AVAILABLE), kiểm tra xong mới gán:
+     - mã không rỗng
+     - giá > 0
+     - năm ≤ date.today().year
+     - max_days > 0, max_periods > 0
+  2. Property chỉ đọc: device_id, name, year_in_service, purchase_price, status,
+     max_borrow_days, max_periods.
+  3. get_years_in_use() -> int.
+  4. @abstractmethod calculate_annual_maintenance_cost() -> Decimal.
+  5. Đổi trạng thái: mark_as_borrowed(), mark_as_available(),
+     mark_as_under_maintenance().
+  6. __str__(): trả về chuỗi gồm mã, tên, năm, trạng thái.
+
+  Chạy thử: Device(...) phải báo lỗi; d.device_id = "X" phải báo AttributeError.
+
+  Bước 4: Ba lớp con
+
+  ┌──────────────────────┬──────────────────┬────────────────────────────────┐
+  │         Lớp          │ Thuộc tính riêng │         Gợi ý giới hạn         │
+  ├──────────────────────┼──────────────────┼────────────────────────────────┤
+  │ AirConditionerRemote │ _supported_model │ 3 ngày, 5 tiết                 │
+  ├──────────────────────┼──────────────────┼────────────────────────────────┤
+  │ Microphone           │ _is_wireless     │ 1 ngày (bắt buộc cho test      │
+  │                      │                  │ 11.2.4), 5 tiết                │
+  ├──────────────────────┼──────────────────┼────────────────────────────────┤
+  │ ProjectorRemote      │ _projector_brand │ 3 ngày, 5 tiết                 │
+  └──────────────────────┴──────────────────┴────────────────────────────────┘
+
+  - Mỗi lớp gọi super().__init__(...) và truyền giới hạn của mình.
+  - Mỗi lớp ghi đè calculate_annual_maintenance_cost() bằng công thức riêng. Ví
+    dụ: giá × tỉ lệ + số năm sử dụng × hệ số; micro không dây có tỉ lệ cao hơn.
+
+  Bước 5: ClassRoom (kết tập)
+
+  - __init__(room_id, room_name, capacity), kiểm tra hợp lệ, _devices = [].
+  - add_device(device): báo lỗi nếu None hoặc trùng mã.
+  - remove_device(device_id) -> bool.
+  - find_device(device_id) -> Device | None.
+  - calculate_annual_maintenance_cost() -> Decimal: sum(..., Decimal("0")),
+    không dùng isinstance.
+  - get_devices_requiring_maintenance() -> list: trạng thái UNDER_MAINTENANCE
+    hoặc get_years_in_use() > 5.
+
+  Bước 6: Người mượn
+
+  - IBorrower(ABC): borrower_id và full_name là @property + @abstractmethod;
+    get_maximum_devices() là @abstractmethod.
+  - Lecturer trả về 3, TeachingAssistant trả về 2. Cả hai kiểm tra id và tên
+    không rỗng.
+
+  Bước 7: BorrowItem (chi tiết phiếu mượn)
+
+  1. __init__(device, borrowed_date, due_date, from_period, to_period), kiểm
+     tra:
+     - device không None
+     - due_date >= borrowed_date
+     - 1 <= from_period <= to_period
+     - _returned_date = None
+  2. Property chỉ đọc: device, borrowed_date, due_date, from_period, to_period,
+     returned_date.
+  3. is_returned() -> bool.
+  4. mark_returned(returned_date):
+     - đã trả rồi thì ném DeviceAlreadyReturnedException
+     - returned_date < borrowed_date thì ném InvalidReturnDateException
+     - qua hết mới gán _returned_date
+  5. get_late_days(as_of) -> int: mốc là returned_date nếu đã trả, as_of nếu
+     chưa; trả về max(0, (mốc - due_date).days).
+  6. is_late(as_of) -> bool.
+  7. calculate_late_fee(as_of) -> Decimal: get_late_days(as_of) *
+     LATE_FEE_PER_DAY.
+
+  Bước 8: BorrowingSlip (hợp thành)
+
+  1. __init__(slip_id, borrower, teaching_room, borrowed_date): kiểm tra id và
+     phòng không rỗng, borrower không None; _items = [].
+  2. Property: slip_id, borrower, teaching_room, borrowed_date, và items trả về
+     tuple(self._items).
+  3. _find_item(device_id): trả về item hoặc None.
+  4. _validate_borrowing(device, borrow_days, from_period, to_period), kiểm tra
+     theo thứ tự:
+     a. device is None: ValueError
+     b. borrow_days <= 0 hoặc > device.max_borrow_days:
+        InvalidBorrowPeriodException
+     c. số tiết > device.max_periods: InvalidBorrowPeriodException
+     d. _find_item(device.device_id) có kết quả: DuplicateDeviceException
+     e. len(_items) >= borrower.get_maximum_devices():
+        BorrowLimitExceededException
+     f. device.status != AVAILABLE: DeviceUnavailableException
+  5. add_device(device, borrow_days, from_period=1, to_period=1), thứ tự cố
+     định:
+     a. _validate_borrowing(...)
+     b. item = BorrowItem(device, borrowed_date, borrowed_date +
+        timedelta(days=borrow_days), ...)
+     c. device.mark_as_borrowed()
+     d. _items.append(item)
+  6. return_device(device_id, returned_date) -> Decimal:
+     a. kiểm tra device_id
+     b. _find_item
+     c. không thấy thì ném DeviceNotInSlipException
+     d. item.mark_returned(returned_date), trong đó đã kiểm tra trả hai lần và
+        ngày trả
+     e. item.device.mark_as_available()
+     f. trả về item.calculate_late_fee(returned_date)
+  7. calculate_total_late_fee(as_of) -> Decimal.
+  8. get_unreturned_items(), get_late_items(as_of).
+
+  Nguyên tắc của lớp này: kiểm tra hết trước, thay đổi trạng thái sau cùng. Nhớ
+  thêm timedelta vào dòng import datetime.
+
+  Bước 9: main.py, luồng thành công (11.1)
+
+  1. Tạo Lecturer.
+  2. Tạo máy chiếu, điều hòa, micro không dây; thêm vào một ClassRoom.
+  3. Tạo phiếu, ngày mượn cố định date(2026, 10, 1).
+  4. Thêm máy chiếu và micro vào phiếu (mượn 1 ngày).
+  5. Trả máy chiếu ngày 10/2: phí 0.
+  6. Trả micro ngày 10/4 (trễ 2 ngày): phí 20000.
+  7. In danh sách trả muộn, chưa trả, tổng phí trễ, chi phí bảo trì của phòng,
+     thiết bị cần bảo trì.
+
+  Bước 10: main.py, luồng ngoại lệ (11.2)
+
+  Mỗi tình huống là một hàm riêng, có try / except / finally riêng:
+
+  ┌─────┬───────────────────────────────────┬────────────────────────────────┐
+  │  #  │            Tình huống             │       Ngoại lệ mong đợi        │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 1   │ Mượn điều hòa đang                │ DeviceUnavailableException     │
+  │     │ UNDER_MAINTENANCE                 │                                │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 2   │ Trợ giảng mượn thiết bị thứ 3     │ BorrowLimitExceededException   │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 3   │ Thêm cùng micro hai lần           │ DuplicateDeviceException       │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 4   │ Mượn micro 3 ngày (giới hạn 1)    │ InvalidBorrowPeriodException   │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 5   │ Trả máy chiếu không thuộc phiếu   │ DeviceNotInSlipException       │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 6   │ Trả cùng thiết bị hai lần         │ DeviceAlreadyReturnedException │
+  ├─────┼───────────────────────────────────┼────────────────────────────────┤
+  │ 7   │ Ngày trả trước ngày mượn          │ InvalidReturnDateException     │
+  └─────┴───────────────────────────────────┴────────────────────────────────┘
+
+  - except ngoại lệ cụ thể trước, except BorrowingException sau cùng.
+  - finally in trạng thái thiết bị và len(slip.items), để chứng minh dữ liệu
+    không đổi khi thao tác thất bại.
+
+  Bước 11: Cập nhật sơ đồ UML cho khớp code
+
+  - Thêm getter dạng + device_id : str {readOnly} (ít nhất device_id, status,
+    max_borrow_days, max_periods, device, items).
+  - Thêm calculate_late_fee(as_of) : Decimal vào BorrowItem, cùng một note "Giả
+    định: 10.000/ngày trễ".
+  - Đổi float thành Decimal; ghi {override} ở 3 lớp con.
+
+  Bước 12: Tự kiểm tra trước khi nộp
+
+  - [ ] Sau mỗi tình huống lỗi, trạng thái thiết bị và số item không đổi.
+  - [ ] d.device_id = "X" và slip.items.append(...) đều không làm được.
+  - [ ] Không có isinstance trong phần tính chi phí bảo trì.
+  - [ ] del slip xong, thiết bị và người mượn vẫn dùng được.
+  - [ ] Sơ đồ UML khớp với code.
+  - [ ] Chuẩn bị giải thích hai điều tự thêm: InvalidReturnDateException và mức
+    phí trễ 10.000/ngày.
+
+  Viết xong bước nào thì chạy thử bước đó, đừng đợi đến cuối mới chạy.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> tại sao BorrowingException lại kế thừa Exception
+
+● Có ba lý do.
+
+  1. Python bắt buộc. Chỉ những đối tượng thuộc lớp con của BaseException mới
+  dùng được với raise và except:
+
+  class BorrowingException:            # không kế thừa gì
+      pass
+
+  raise BorrowingException()
+  # TypeError: exceptions must derive from BaseException
+
+  2. Kế thừa Exception thay vì BaseException. Python chia ngoại lệ thành hai
+  nhánh:
+
+  BaseException
+  ├── SystemExit, KeyboardInterrupt   ← tín hiệu hệ thống (thoát chương trình,
+  Ctrl+C)
+  └── Exception                       ← lỗi bình thường của chương trình
+      ├── ValueError, TypeError, ...
+      └── BorrowingException          ← lỗi nghiệp vụ của bạn
+
+  Lỗi mượn thiết bị là lỗi bình thường, nên nằm dưới Exception. Nếu kế thừa
+  thẳng BaseException, những đoạn code viết except Exception sẽ không bắt được
+  lỗi của bạn, và lỗi của bạn bị xếp chung nhóm với Ctrl+C, không đúng bản chất.
+
+  3. Có sẵn mọi thứ, không phải tự viết. Kế thừa Exception là có ngay message,
+  traceback, str(e):
+
+  class BorrowingException(Exception):
+      def __init__(self, message):
+          super().__init__(message)    # Exception lo phần lưu message
+
+  try:
+      raise BorrowingException("Thiết bị đang bảo trì")
+  except BorrowingException as e:
+      print(e)                         # Thiết bị đang bảo trì
+
+  Vì sao lại cần thêm một lớp BorrowingException ở giữa, thay vì cho 7 ngoại lệ
+  kế thừa thẳng Exception? Lớp chung này cho phép bắt tất cả lỗi nghiệp vụ bằng
+  một except, trong khi lỗi lập trình như TypeError hay AttributeError vẫn hiện
+  ra để bạn sửa:
+
+  try:
+      slip.add_device(mic, 3)
+  except DuplicateDeviceException:
+      print("Đã có trong phiếu")       # xử lý riêng một loại
+  except BorrowingException as e:
+      print("Lỗi nghiệp vụ:", e)       # bắt 6 loại còn lại
+
+  Đây cũng là lý do bạn không nên cho nó kế thừa ValueError: như vậy lỗi nghiệp
+  vụ sẽ lẫn với lỗi dữ liệu đầu vào cơ bản, và một except ValueError có thể vô
+  tình nuốt mất lỗi nghiệp vụ.
+
+> nhưng mà Exception đã được thiết lập hay định nghĩa đâu mà kế thừa được hay
+  python đã tự định nghĩa sẵn về Exception
+● Đúng vậy, Python đã định nghĩa sẵn Exception. Nó là một lớp có sẵn (built-in),
+  giống như int, str, list hay hàm print. Bạn không cần import hay tự viết.
+
+  Python tự nạp một module tên là builtins mỗi khi chạy chương trình. Mọi thứ
+  trong module đó dùng được ngay ở bất kỳ file nào:
+
+  print(Exception)                 # <class 'Exception'>
+  print(type(Exception))           # <class 'type'>, tức là một lớp
+
+  import builtins
+  print(builtins.Exception is Exception)   # True
+
+  Bạn dùng ValueError, TypeError hằng ngày mà không cần định nghĩa cũng vì lý do
+  này. Chúng là các lớp con có sẵn của Exception:
+
+  print(ValueError.__mro__)
+  # (<class 'ValueError'>, <class 'Exception'>, <class 'BaseException'>, <class
+  'object'>)
+
+  Dòng này cho thấy chuỗi kế thừa: ValueError → Exception → BaseException →
+  object. Khi bạn viết class BorrowingException(Exception), bạn chỉ đang nối
+  thêm một mắt xích vào cùng cây đó.
+
+  Ngược lại, những thứ không có sẵn thì phải import:
+  - Enum: from enum import Enum
+  - ABC, abstractmethod: from abc import ...
+  - date, timedelta: from datetime import ...
+  - Decimal: from decimal import Decimal
+
+  Muốn xem toàn bộ cây ngoại lệ có sẵn, bạn có thể gõ help(Exception) trong
+  terminal Python, hoặc tra mục "Exception hierarchy" trong tài liệu chính thức
+  của Python.
+
+> nếu vậy tại sao phải xây dựng lớp các lỗi trước khi mà mình định nghĩa về
+  thiết bị
+
+● Không bắt buộc. Python cho phép định nghĩa lớp ngoại lệ sau Device mà vẫn chạy
+  được, vì tên trong thân hàm chỉ được tra lúc hàm chạy, không phải lúc định
+  nghĩa:
+
+  class Device:
+      def mark_as_borrowed(self):
+          if self._status != DeviceStatus.AVAILABLE:
+              raise DeviceUnavailableException(...)   # chưa định nghĩa cũng
+  không sao
+
+  class DeviceUnavailableException(BorrowingException):  # định nghĩa sau
+      ...
+
+  # Lúc mark_as_borrowed() thực sự được gọi, cả file đã đọc xong,
+  # nên Python tìm thấy DeviceUnavailableException.
+
+  Tôi xếp ngoại lệ lên trước vì ba lý do khác:
+
+  1. Thứ tự phụ thuộc. Viết thứ được dùng trước, rồi mới viết thứ dùng nó:
+
+  DeviceStatus  ←  ngoại lệ  ←  Device  ←  BorrowItem  ←  BorrowingSlip
+
+  Ngoại lệ chỉ cần DeviceStatus, trong khi Device, BorrowItem, BorrowingSlip đều
+  ném ngoại lệ. Đọc từ trên xuống, người chấm gặp tên nào cũng đã thấy nó được
+  định nghĩa ở phía trên.
+
+  2. Có những chỗ thứ tự thật sự quan trọng: những đoạn chạy ngay lúc định nghĩa
+  lớp, chứ không phải lúc gọi hàm:
+
+  class DeviceUnavailableException(BorrowingException):   # BorrowingException
+  phải có trước
+      ...
+
+  class Device:
+      def __init__(self, ..., status=DeviceStatus.AVAILABLE):  # DeviceStatus
+  phải có trước
+          ...
+
+  Lớp cha và giá trị mặc định của tham số được tính ngay khi Python đọc tới dòng
+  đó. Nếu chưa định nghĩa sẽ báo NameError. Xếp theo thứ tự phụ thuộc thì không
+  bao giờ vướng lỗi này.
+
+  3. Cách làm bài. Ngoại lệ là phần đơn giản, không phụ thuộc gì, nên viết xong
+  là chạy thử được ngay. Khi sang Device hay BorrowingSlip, bạn chỉ việc raise,
+  không phải dừng giữa chừng để đi viết ngoại lệ.
+
+  Nếu bạn thấy viết Device trước rồi mới tới ngoại lệ dễ hiểu hơn thì cứ làm
+  vậy, chương trình vẫn đúng. Chỉ cần nhớ: lớp cha và giá trị mặc định phải được
+  định nghĩa ở phía trên chỗ dùng chúng.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> ở bước 2 là tôi sẽ xây dựng toàn bộ các lớp lỗi phải không
+
+● Đúng, ở Bước 2 bạn viết toàn bộ 8 lớp lỗi: 1 lớp cơ sở BorrowingException và 7
+  lớp con. Đây là phần đơn giản nhất, vì các lớp đều theo cùng một mẫu.
+
+  Lớp cơ sở:
+
+  class BorrowingException(Exception):
+      def __init__(self, message: str):
+          super().__init__(message)
+
+  Mẫu cho lớp con (lấy một lớp làm ví dụ):
+
+  class DeviceUnavailableException(BorrowingException):
+      def __init__(self, device_id: str, current_status: DeviceStatus):
+          self.device_id = device_id               # 1. lưu dữ liệu ngữ cảnh
+          self.current_status = current_status
+          super().__init__(                        # 2. tạo message, gọi lớp cha
+              f"Thiết bị {device_id} không sẵn sàng "
+              f"(trạng thái: {current_status.name})"
+          )
+
+  Mỗi lớp con chỉ gồm hai việc: lưu các thuộc tính và tạo câu thông báo rồi gọi
+  super().__init__.
+
+  Danh sách cần viết, theo bảng ở Bước 2:
+
+  1. BorrowingException (cơ sở)
+  2. DeviceUnavailableException: device_id, current_status
+  3. BorrowLimitExceededException: borrower_id, maximum_devices
+  4. InvalidBorrowPeriodException: device_id, requested, maximum
+  5. DuplicateDeviceException: device_id
+  6. DeviceNotInSlipException: device_id, slip_id
+  7. DeviceAlreadyReturnedException: device_id, returned_date
+  8. InvalidReturnDateException: borrowed_date, returned_date
+
+  Lưu ý thứ tự trong models.py: import → LATE_FEE_PER_DAY → DeviceStatus → các
+  lớp lỗi. DeviceStatus phải đứng trên vì lớp số 2 dùng nó. BorrowingException
+  phải đứng trên 7 lớp con vì là lớp cha của chúng.
+
+  Viết xong, thử nhanh bằng mấy dòng cuối file:
+
+  if __name__ == "__main__":
+      try:
+          raise DeviceUnavailableException("AC01",
+  DeviceStatus.UNDER_MAINTENANCE)
+      except BorrowingException as e:
+          print(e, "|", e.device_id)
+
+  Nếu in ra đúng câu thông báo và mã thiết bị là xong Bước 2. Khi chuyển sang
+  Bước 3 thì xóa khối thử này đi.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> làm sao để nó biết là thiết bị có sẵn sàng hay không trong khi kh có câu lệnh
+  nào liên quan đến điều kiện của trạng thái của thiết bị
+
+● Lớp lỗi không tự kiểm tra gì cả. Nó không biết thiết bị có sẵn sàng hay không,
+  và cũng không cần biết. Lớp lỗi chỉ là tờ biên bản: chứa thông tin về lỗi (mã
+  thiết bị, trạng thái hiện tại) và câu thông báo.
+
+  Việc kiểm tra điều kiện nằm ở lớp nghiệp vụ, cụ thể là _validate_borrowing
+  trong BorrowingSlip (Bước 8). Chỗ đó phát hiện ra vấn đề, rồi mới tạo và ném
+  lớp lỗi:
+
+  # Bước 2: lớp lỗi chỉ đóng gói thông tin
+  class DeviceUnavailableException(BorrowingException):
+      def __init__(self, device_id, current_status):
+          self.device_id = device_id
+          self.current_status = current_status
+          super().__init__(f"Thiết bị {device_id} không sẵn sàng
+  ({current_status.name})")
+
+  # Bước 8: lớp nghiệp vụ kiểm tra điều kiện
+  class BorrowingSlip:
+      def _validate_borrowing(self, device, borrow_days, from_period,
+  to_period):
+          ...
+          if device.status != DeviceStatus.AVAILABLE:          # ← câu lệnh điều
+  kiện ở đây
+              raise DeviceUnavailableException(device.device_id, device.status)
+
+  Luồng chạy khi mượn điều hòa đang bảo trì:
+
+  main gọi slip.add_device(ac, 1)
+    → _validate_borrowing kiểm tra: ac.status là UNDER_MAINTENANCE, khác
+  AVAILABLE
+    → tạo DeviceUnavailableException("AC01", UNDER_MAINTENANCE)
+    → raise: dừng add_device ngay, chưa đổi trạng thái, chưa thêm item
+    → except trong main bắt được, in thông báo
+
+  Tách như vậy vì mỗi phần làm một việc:
+
+  ┌────────────────────────────┬─────────────────────────────────────────────┐
+  │            Phần            │                 Trách nhiệm                 │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ _validate_borrowing        │ Biết khi nào là lỗi (quy tắc nghiệp vụ)     │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ DeviceUnavailableException │ Mô tả lỗi là gì (dữ liệu và thông báo)      │
+  ├────────────────────────────┼─────────────────────────────────────────────┤
+  │ main                       │ Quyết định làm gì khi có lỗi (in ra, bỏ     │
+  │                            │ qua, thử lại)                               │
+  └────────────────────────────┴─────────────────────────────────────────────┘
+
+  Đây chính là ý của mục 10 trong đề: "lớp nghiệp vụ phát sinh ngoại lệ, Main()
+  bắt ngoại lệ để thông báo và quyết định luồng xử lý."
+
+  Vì vậy, ở Bước 2 bạn không viết if nào cả. Các câu if sẽ xuất hiện ở Bước 7
+  (mark_returned) và Bước 8 (_validate_borrowing, return_device).
+
+> thế làm sao lấy được current_status.name
+
+● .name là thuộc tính Python tự tạo sẵn cho mọi thành viên của Enum. Bạn không
+  phải định nghĩa gì thêm.
+
+  Khi bạn viết:
+
+  from enum import Enum
+
+  class DeviceStatus(Enum):
+      AVAILABLE = 1
+      BORROWED = 2
+      UNDER_MAINTENANCE = 3
+      RETIRED = 4
+
+  thì mỗi thành viên như DeviceStatus.UNDER_MAINTENANCE là một đối tượng, tự
+  động có hai thuộc tính:
+
+  ┌────────────┬────────────────────────────┬─────────────────────┐
+  │ Thuộc tính │          Ý nghĩa           │        Ví dụ        │
+  ├────────────┼────────────────────────────┼─────────────────────┤
+  │ .name      │ Tên bạn đặt bên trái dấu = │ "UNDER_MAINTENANCE" │
+  ├────────────┼────────────────────────────┼─────────────────────┤
+  │ .value     │ Giá trị bên phải dấu =     │ 3                   │
+  └────────────┴────────────────────────────┴─────────────────────┘
+
+  s = DeviceStatus.UNDER_MAINTENANCE
+  print(s)          # DeviceStatus.UNDER_MAINTENANCE
+  print(s.name)     # UNDER_MAINTENANCE
+  print(s.value)    # 3
+
+  Trong lớp lỗi, current_status là thứ bên ngoài truyền vào, ví dụ device.status
+  có giá trị DeviceStatus.UNDER_MAINTENANCE. Vì vậy current_status.name cho ra
+  chuỗi "UNDER_MAINTENANCE", dùng để ghép vào câu thông báo.
+
+  Nếu muốn thông báo bằng tiếng Việt thay vì tên tiếng Anh, bạn có thể đặt value
+  là chuỗi tiếng Việt rồi dùng .value:
+
+  class DeviceStatus(Enum):
+      AVAILABLE = "Sẵn sàng"
+      BORROWED = "Đang được mượn"
+      UNDER_MAINTENANCE = "Đang bảo trì"
+      RETIRED = "Ngừng sử dụng"
+
+  print(DeviceStatus.UNDER_MAINTENANCE.value)   # Đang bảo trì
+
+  Cách này tiện khi in kết quả ở main.py. Chỉ cần nhớ dùng .value thay cho .name
+  trong câu thông báo.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> từng ngoại lệ đều phải nhập self vô để hiện thị thông tin phải không
+
+● Gần đúng, nhưng có hai việc khác nhau cần tách ra.
+
+  1. self trong def __init__(self, ...): bắt buộc, nhưng bạn không phải tự
+  truyền
+
+  Mọi phương thức trong lớp đều phải có self làm tham số đầu tiên. Lúc gọi,
+  Python tự truyền đối tượng đang được tạo vào self:
+
+  class DuplicateDeviceException(BorrowingException):
+      def __init__(self, device_id):      # khai báo 2 tham số
+          ...
+
+  raise DuplicateDeviceException("MIC01") # nhưng chỉ truyền 1; Python tự điền
+  self
+
+  2. self.device_id = device_id: để lưu thông tin, không phải để hiển thị
+
+  Hai việc này khác nhau:
+
+  class DuplicateDeviceException(BorrowingException):
+      def __init__(self, device_id):
+          self.device_id = device_id                              # LƯU: để dùng
+  lại sau
+          super().__init__(f"Thiết bị {device_id} đã có trong phiếu")  # HIỂN
+  THỊ: message
+
+  - Hiển thị: do super().__init__(message) lo. Khi print(e), Python in câu
+    message này ra. Phần này không cần self..
+  - Lưu bằng self.: để chỗ bắt lỗi lấy riêng từng thông tin ra dùng:
+
+  try:
+      slip.add_device(mic, 1)
+  except DuplicateDeviceException as e:
+      print(e)              # Thiết bị MIC01 đã có trong phiếu  ← message
+      print(e.device_id)    # MIC01                             ← nhờ
+  self.device_id
+
+  Nếu bỏ dòng self.device_id = device_id, print(e) vẫn chạy bình thường, nhưng
+  e.device_id sẽ báo AttributeError.
+
+  Vậy có cần lưu không? Nên lưu, vì đề yêu cầu các ngoại lệ "nên chứa" DeviceId,
+  CurrentStatus, BorrowerId, MaximumDevices... Nghĩa là mỗi ngoại lệ phải mang
+  theo dữ liệu đó dưới dạng thuộc tính, chứ không chỉ nằm trong câu thông báo.
+
+  Tóm lại, mỗi lớp lỗi con gồm:
+  1. def __init__(self, ...): luôn có self đứng đầu.
+  2. self.x = x cho từng thông tin, để lưu lại.
+  3. super().__init__(f"..."), để tạo câu hiển thị.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> tôi vẫn đang làm đúng chứ
+
+● I need to read the file to check.
+
+  Read 1 file (ctrl+o to expand)
+
+● Hướng đi đúng, cấu trúc đúng thứ tự (import, hằng số, enum, ngoại lệ, Device).
+  Có 2 lỗi sẽ làm chương trình hỏng và vài chỗ nên sửa.
+
+  Lỗi nghiêm trọng
+
+  1. models.py:44 (models.py#L44): DeviceNotInSlipException quên kế thừa
+  BorrowingException
+
+  class DeviceNotInSlipException:                       # thiếu lớp cha
+  class DeviceNotInSlipException(BorrowingException):   # sửa thành
+
+  Không có lớp cha thì super().__init__(...) sẽ gọi vào object, mà object không
+  nhận tham số, nên báo TypeError. Lớp này cũng không raise được, vì không kế
+  thừa Exception.
+
+  2. models.py:67 (models.py#L67): điều kiện kiểm tra mã rỗng bị sai logic
+
+  if device_id is None and device_id.strip():
+
+  - Nếu device_id là None: vế sau gọi None.strip(), báo AttributeError thay vì
+    ValueError.
+  - Nếu device_id là "": vế đầu ra False, nên câu if không chạy và mã rỗng lọt
+    qua.
+
+  Sửa thành:
+
+  if not device_id or not device_id.strip():
+
+  Thiếu trong Device.__init__
+
+  3. Chưa lưu status. Tham số status có nhận vào nhưng không gán, nên sau này
+  mark_as_borrowed() hay kiểm tra trạng thái sẽ không có gì để dùng. Thêm dòng:
+
+  self._status = status
+
+  4. models.py:70 (models.py#L70): self.name đang public. Nên đổi thành
+  self._name và thêm @property name cho đồng bộ với các thuộc tính khác, đồng
+  thời kiểm tra tên không rỗng.
+
+  Nên sửa (không làm hỏng code)
+
+  5. models.py:28 (models.py#L28): câu thông báo nói sai đối tượng. borrower_id
+  là mã người mượn, không phải mã phiếu:
+
+  f"Người mượn {borrower_id} đã đạt tối đa {maximum_devices} thiết bị"
+
+  6. models.py:36 (models.py#L36): lỗi chính tả "dã". Nên đưa luôn số liệu vào
+  câu, để người đọc biết vì sao bị từ chối:
+
+  f"Thiết bị {device_id}: yêu cầu {requested}, tối đa {maximum}"
+
+  7. models.py:20-21 (models.py#L20-L21): thiếu dấu cách giữa hai chuỗi. Hiện
+  tại in ra thành không sẵn sàng(trạng thái: ...). Thêm một dấu cách vào cuối
+  dòng 20.
+
+  8. models.py:58 (models.py#L58): tên lớp. Bạn đặt
+  InvalidReturnedDateException, còn khung và sơ đồ ghi
+  InvalidReturnDateException. Tên nào cũng được, miễn thống nhất giữa code và
+  UML.
+
+  Sửa xong mục 1 đến 3 thì phần ngoại lệ hoàn chỉnh, và bạn có thể làm tiếp các
+  property cùng phương thức của Device (Bước 3, mục 2 đến 6).
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> hàm get year in use đúng chưa
+
+  Read 1 file (ctrl+o to expand)
+
+● Chưa đúng. models.py:85-87 (models.py#L85-L87) có 3 lỗi:
+
+  def get_year_in_use(self,year):
+      S=self.year
+      return S
+
+  1. self.year không tồn tại. Ở dòng 75 bạn lưu vào self._year, có dấu _. Gọi
+     hàm này sẽ báo AttributeError.
+  2. Tham số year thừa. Năm đưa vào sử dụng đã nằm sẵn trong đối tượng, không
+     cần truyền vào nữa. Hơn nữa, tham số này cũng không được dùng đến.
+  3. Trả về sai thứ. Hàm phải trả về số năm đã sử dụng, tức là năm hiện tại trừ
+     năm đưa vào dùng. Code hiện tại (nếu sửa self._year) chỉ trả lại chính năm
+     đưa vào sử dụng, ví dụ 2019 thay vì 7.
+
+  Sửa thành:
+
+  def get_years_in_use(self) -> int:
+      return date.today().year - self._year
+
+  Ví dụ: thiết bị đưa vào dùng năm 2019, năm nay 2026, thì trả về 7. ClassRoom
+  sẽ dùng kết quả này để lọc thiết bị dùng trên 5 năm.
+
+  Tên hàm nên là get_years_in_use (có "s") cho khớp với sơ đồ UML của bạn.
+
+  Ba chỗ tôi báo lần trước vẫn chưa sửa:
+  - models.py:67 (models.py#L67) và models.py:70 (models.py#L70): is None and
+    ... .strip() vẫn sai logic. Cả hai nên viết là if not x or not x.strip():.
+  - Chưa lưu trạng thái: cần thêm self._status = status vào __init__.
+  - models.py:44 (models.py#L44): kiểm tra lại DeviceNotInSlipException đã có
+    (BorrowingException) chưa.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> tại sao lấy không lấy self.year đươc mà phải self._year
+
+● Vì _year và year là hai cái tên khác nhau. Dấu _ là một phần của tên, không
+  phải ký hiệu đặc biệt mà Python tự bỏ đi.
+
+  Thuộc tính trong Python chỉ tồn tại khi bạn gán nó. Ở dòng 75 bạn viết:
+
+  self._year = year
+
+  nên đối tượng chỉ có thuộc tính tên _year. Chưa có dòng nào tạo ra self.year,
+  nên khi đọc self.year Python không tìm thấy và báo lỗi:
+
+  mic = Microphone(...)
+  print(mic._year)   # 2019
+  print(mic.year)    # AttributeError: 'Microphone' object has no attribute
+  'year'
+
+  Giống như đặt tên biến _x = 5, rồi gọi x: Python không hiểu x là _x.
+
+  Vậy dấu _ có tác dụng gì? Nó chỉ là quy ước, báo cho người đọc biết "đây là dữ
+  liệu nội bộ, bên ngoài đừng đụng vào". Python không chặn gì cả.
+
+  Nếu muốn bên ngoài đọc được bằng tên year (không có _), bạn phải tự tạo
+  property:
+
+  class Device(ABC):
+      def __init__(self, ..., year, ...):
+          self._year = year            # dữ liệu thật lưu ở _year
+
+      @property
+      def year_in_service(self):       # tên dùng để đọc từ bên ngoài
+          return self._year
+
+  mic.year_in_service    # 2019, đọc qua property
+
+  Đây là cách làm ở Bước 3, mục 2:
+
+  - Bên trong lớp: dùng self._year (dữ liệu thật).
+  - Bên ngoài lớp: dùng tên property, không có _, chỉ đọc được và không gán
+    được.
+
+  Trong get_years_in_use(), hàm nằm bên trong lớp nên dùng self._year là đúng.
+  Nếu đã có property thì viết self.year_in_service cũng được, kết quả như nhau.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> thế nếu tôi xóa đi như trong code hiện giờ thì sao
+
+  Read 1 file (ctrl+o to expand)
+
+● Bây giờ models.py:75 (models.py#L75) lưu vào self.year (không có _), nhưng
+  models.py:86 (models.py#L86) lại đọc self._year. Hai tên lại lệch nhau theo
+  chiều ngược lại, nên gọi hàm vẫn báo AttributeError.
+
+  Nếu dùng self.year ở cả hai chỗ thì code chạy được, nhưng sẽ mất một thứ quan
+  trọng: bên ngoài sửa được tùy ý, bỏ qua bước kiểm tra.
+
+  mic = Microphone("MIC01", "Micro", 2019, ...)  # __init__ kiểm tra năm: hợp lệ
+
+  mic.year = 2099        # gán thẳng, không qua kiểm tra nào
+  print(mic.get_years_in_use())   # -73 năm sử dụng: dữ liệu sai
+
+  Câu if year > date.today().year trong __init__ chỉ chạy một lần lúc tạo đối
+  tượng. Sau đó, thuộc tính public ai cũng gán lại được mà không bị kiểm tra.
+
+  So sánh hai cách:
+
+  ┌──────────────────────┬─────────────────────────┬───────────────────────┐
+  │                      │   self.year (public)    │     self._year +      │
+  │                      │                         │       @property       │
+  ├──────────────────────┼─────────────────────────┼───────────────────────┤
+  │ Đọc từ ngoài         │ Được                    │ Được                  │
+  ├──────────────────────┼─────────────────────────┼───────────────────────┤
+  │ Gán từ ngoài         │ Được, không qua kiểm    │ AttributeError        │
+  │                      │ tra                     │                       │
+  ├──────────────────────┼─────────────────────────┼───────────────────────┤
+  │ Đúng yêu cầu đóng    │ Không                   │ Có                    │
+  │ gói                  │                         │                       │
+  └──────────────────────┴─────────────────────────┴───────────────────────┘
+
+  Đề yêu cầu kiểm tra "năm đưa vào sử dụng không được lớn hơn năm hiện tại". Nếu
+  sau đó gán năm sai được, yêu cầu đó coi như vô nghĩa, và người chấm có thể
+  trừ điểm phần đóng gói.
+
+  Khuyên dùng: trả dòng 75 về self._year = year, rồi thêm property:
+
+  @property
+  def year_in_service(self):
+      return self._year
+
+  Ngoài ra, models.py:85-87 (models.py#L85-L87) vẫn trả về năm, chưa phải số năm
+  sử dụng, và tên hàm thiếu "s". Sửa thành:
+
+  def get_years_in_use(self) -> int:
+      return date.today().year - self._year
+
+  Các lỗi ở models.py:44 (models.py#L44) (thiếu BorrowingException),
+  models.py:67 (models.py#L67) và models.py:70 (models.py#L70) (is None and),
+  cùng việc chưa lưu status, vẫn còn nguyên.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> thế tại sao trong property thường là return về self._year còn init thì là
+  self.year
+
+● Bạn đã thấy đúng một mẫu code rất phổ biến. Mẫu đó chỉ chạy được khi có
+  setter, và nó không áp dụng cho trường hợp chỉ đọc.
+
+  Mẫu 1: có setter, thì __init__ gán self.year
+
+  class Device:
+      def __init__(self, year):
+          self.year = year              # (1) không gán thẳng: gọi setter
+
+      @property
+      def year(self):                   # getter
+          return self._year             # (3) đọc dữ liệu thật
+
+      @year.setter
+      def year(self, value):            # setter
+          if value > date.today().year:
+              raise ValueError("Năm không phù hợp")
+          self._year = value            # (2) lưu vào _year
+
+  Khi lớp có property tên year, câu self.year = year không tạo thuộc tính mới.
+  Python thấy year là property nên chuyển sang gọi setter. Setter kiểm tra rồi
+  mới lưu vào self._year.
+
+  Vì vậy có hai tên đi cùng nhau:
+  - year: "cửa" để đọc và ghi, chính là property.
+  - _year: "kho" chứa dữ liệu thật.
+
+  Getter trả về self._year, không phải self.year. Nếu viết return self.year bên
+  trong getter, getter sẽ gọi lại chính nó vô hạn và báo RecursionError.
+
+  Lợi ích của mẫu này là kiểm tra chỉ viết một lần trong setter, và mọi lần gán
+  (trong __init__ hay từ bên ngoài) đều bị kiểm tra.
+
+  Mẫu 2: chỉ đọc, thì __init__ phải gán self._year
+
+  class Device:
+      def __init__(self, year):
+          if year > date.today().year:
+              raise ValueError("Năm không phù hợp")
+          self._year = year             # gán thẳng vào kho
+
+      @property
+      def year(self):                   # chỉ có getter
+          return self._year
+
+  Ở đây không có setter. Nếu __init__ viết self.year = year, Python sẽ báo
+  AttributeError: can't set attribute, vì không có cửa nào để ghi vào. Bạn buộc
+  phải gán thẳng vào self._year.
+
+  Bài của bạn dùng mẫu nào?
+
+  ┌────────────────┬──────────────────────────┬────────────────────────────┐
+  │   Thuộc tính   │   Có đổi sau khi tạo     │            Mẫu             │
+  │                │          không?          │                            │
+  ├────────────────┼──────────────────────────┼────────────────────────────┤
+  │ device_id      │ Không, đề cấm            │ Mẫu 2                      │
+  ├────────────────┼──────────────────────────┼────────────────────────────┤
+  │ year, price,   │ Không có yêu cầu đổi     │ Mẫu 2 (đơn giản nhất)      │
+  │ name           │                          │                            │
+  ├────────────────┼──────────────────────────┼────────────────────────────┤
+  │ status         │ Có, nhưng chỉ qua        │ Mẫu 2 + các phương thức    │
+  │                │ mark_as_...()            │ đổi trạng thái             │
+  └────────────────┴──────────────────────────┴────────────────────────────┘
+
+  Vì vậy, trong Device.__init__ của bạn, mọi chỗ nên gán vào self._.... Code
+  hiện tại ở models.py:75 (models.py#L75) đang viết self.year = year, nhưng
+  không có property year nào. Kết quả là nó chỉ tạo ra một thuộc tính public
+  bình thường, không thuộc mẫu nào ở trên.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> thế như giờ tôi làm là đúng không
+
+  Read 1 file (ctrl+o to expand)
+
+● Chưa đúng. Phần ngoại lệ đã tốt hơn, nhưng Device đang đi ngược yêu cầu của
+  đề.
+
+  Đã sửa đúng
+
+  - models.py:28 (models.py#L28) và models.py:36 (models.py#L36): câu thông báo
+    đã rõ nghĩa, có số liệu.
+  - models.py:58 (models.py#L58): tên InvalidReturnDateException đã thống nhất
+    với sơ đồ.
+
+  Chưa đúng
+
+  1. models.py:69-84 (models.py#L69-L84): tất cả thuộc tính đang là public
+  (self.device_id, self.year...). Code chạy được, nhưng vi phạm yêu cầu "mã
+  thiết bị chỉ được thiết lập khi khởi tạo", vì bên ngoài vẫn viết mic.device_id
+  = "X" được. Cần đổi sang mẫu 2 (chỉ đọc): gán vào self._..., kèm @property.
+
+  2. models.py:44 (models.py#L44): vẫn thiếu (BorrowingException).
+
+  3. models.py:67 (models.py#L67) và models.py:70 (models.py#L70): vẫn là is
+  None and ... .strip(). Nhập "" vẫn lọt qua.
+
+  4. Vẫn chưa lưu status.
+
+  5. models.py:85-87 (models.py#L85-L87): vẫn trả về năm, không phải số năm sử
+  dụng.
+
+  Device sau khi sửa
+
+  Đây là mẫu cho phần __init__ và property, đúng mẫu 2 đã giải thích ở trên:
+
+  class Device(ABC):
+      def __init__(self, device_id, name, year, price, max_days, max_periods,
+                   status=DeviceStatus.AVAILABLE):
+          if not device_id or not device_id.strip():
+              raise ValueError("Mã thiết bị không được để rỗng")
+          if not name or not name.strip():
+              raise ValueError("Tên thiết bị không được để rỗng")
+          if year > date.today().year:
+              raise ValueError("Năm không phù hợp")
+          if price <= 0:
+              raise ValueError("Giá mua phải lớn hơn 0")
+          if max_days <= 0:
+              raise ValueError("Ngày mượn tối đa phải lớn hơn 0")
+          if max_periods <= 0:
+              raise ValueError("Số tiết mượn tối đa phải lớn hơn 0")
+
+          self._device_id = device_id
+          self._name = name
+          self._year = year
+          self._price = price
+          self._max_days = max_days
+          self._max_periods = max_periods
+          self._status = status
+
+      @property
+      def device_id(self):
+          return self._device_id
+
+      @property
+      def name(self):
+          return self._name
+
+      @property
+      def status(self):
+          return self._status
+
+      @property
+      def max_borrow_days(self):
+          return self._max_days
+
+      @property
+      def max_periods(self):
+          return self._max_periods
+
+      def get_years_in_use(self) -> int:
+          return date.today().year - self._year
+
+  Ở đây tôi gom hết phần kiểm tra lên trước, rồi mới gán. Cách này cùng tinh
+  thần "kiểm tra hết trước, thay đổi sau" mà bạn sẽ dùng lại ở add_device.
+
+  Sau phần này, bạn làm tiếp các mục 4 đến 6 của Bước 3:
+  - @abstractmethod calculate_annual_maintenance_cost()
+  - mark_as_borrowed(), mark_as_available(), mark_as_under_maintenance(), mỗi
+    hàm chỉ đổi self._status
+  - __str__()
+
+> giải thích lại chúng nó khác nhau điểm nào ở việc có _ và không có
+
+● Gọn lại thành một ví dụ:
+
+  class Device:
+      def __init__(self, device_id, year):
+          self._device_id = device_id   # có _
+          self.year = year              # không có _
+
+      @property
+      def device_id(self):
+          return self._device_id
+
+  Không có _: thuộc tính công khai
+
+  self.year là thuộc tính bình thường. Ai cũng đọc và ghi được, và không có kiểm
+  tra nào khi ghi:
+
+  d.year           # 2019, đọc được
+  d.year = 2099    # ghi được, không ai chặn
+
+  Có _: dữ liệu nội bộ
+
+  self._device_id về kỹ thuật cũng đọc ghi được y hệt. Python không chặn gì. Dấu
+  _ chỉ là quy ước giữa các lập trình viên: "đây là đồ bên trong lớp, bên ngoài
+  đừng đụng".
+
+  d._device_id = "X"   # vẫn chạy được, nhưng là làm sai quy ước
+
+  Cái thực sự chặn được việc ghi là @property không có setter
+
+  Khi kết hợp _device_id với property device_id, bên ngoài dùng tên không có _
+  và chỉ đọc được:
+
+  d.device_id          # "MIC01", đọc qua property
+  d.device_id = "X"    # AttributeError, không có setter nên bị chặn
+
+  Tóm tắt
+
+  ┌─────────┬───────────────────┬─────────────────────┬────────────────────┐
+  │         │                   │  self._device_id    │   _device_id +     │
+  │         │     self.year     │     (một mình)      │     @property      │
+  │         │                   │                     │     device_id      │
+  ├─────────┼───────────────────┼─────────────────────┼────────────────────┤
+  │ Bên     │                   │ d._device_id (sai   │                    │
+  │ ngoài   │ d.year            │ quy ước)            │ d.device_id        │
+  │ đọc     │                   │                     │                    │
+  ├─────────┼───────────────────┼─────────────────────┼────────────────────┤
+  │ Bên     │                   │                     │                    │
+  │ ngoài   │ Được              │ Được (sai quy ước)  │ Bị chặn            │
+  │ ghi     │                   │                     │                    │
+  ├─────────┼───────────────────┼─────────────────────┼────────────────────┤
+  │ Dùng    │ Dữ liệu tự do,    │ Không dùng một mình │ Dữ liệu cần bảo vệ │
+  │ khi nào │ không cần bảo vệ  │                     │  (bài này)         │
+  └─────────┴───────────────────┴─────────────────────┴────────────────────┘
+
+  Nhớ nhanh:
+  - _ten là cái kho chứa dữ liệu. Chỉ code bên trong lớp dùng.
+  - ten (property) là cái cửa sổ cho bên ngoài nhìn vào, chỉ nhìn chứ không với
+    tay vào được.
+
+  Trong bài của bạn: bên trong lớp Device (ở __init__, get_years_in_use,
+  mark_as_...) thì dùng self._.... Bên ngoài như ClassRoom, BorrowingSlip, main
+  thì dùng device.device_id, device.status, không có _.
+
+> nghĩa là nó chỉ là cách đặt tên còn sự thật về việc ghi chú dữ liệu không
+  được sửa đổi  nằm ở property đúng kh
+● Đúng. Cụ thể:
+
+  - _ chỉ là cách đặt tên để báo cho người đọc "đây là đồ nội bộ". Python không
+    ép buộc gì.
+  - @property không có setter mới là thứ thực sự chặn việc gán qua tên công
+    khai: d.device_id = "X" báo AttributeError.
+
+  Có một điểm cần nhớ: property chỉ chặn cái cửa device_id, không khóa cái kho
+  _device_id. Người cố tình vẫn sửa được:
+
+  d.device_id = "X"     # bị chặn
+  d._device_id = "X"    # vẫn chạy được
+
+  Python không có cơ chế cấm tuyệt đối như private trong C# hay Java. Triết lý
+  của Python là "chúng ta đều là người lớn": đã có dấu _ cảnh báo thì không ai
+  nên đụng vào. Với bài lab, _ + property được xem là đúng chuẩn đóng gói.
+
+  Còn một loại tên khác là __ (hai dấu gạch dưới, ví dụ self.__device_id).
+  Python sẽ tự đổi tên nó thành _Device__device_id, nên d.__device_id từ bên
+  ngoài sẽ báo lỗi. Tuy vậy, cách này vẫn không cấm tuyệt đối, và còn gây phiền
+  khi lớp con cần dùng. Với bài này, bạn cứ dùng một dấu _.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> vậy như code tôi hiện giờ sẽ phải thêm property cho từng cái phải không
+
+● Không cần thêm cho tất cả. Có hai việc riêng:
+
+  1. Đổi tất cả các dòng gán trong __init__ sang self._.... Việc này áp dụng cho
+  mọi thuộc tính, để không cái nào bị sửa tùy ý từ bên ngoài.
+
+  2. Chỉ thêm @property cho thuộc tính mà bên ngoài lớp cần đọc. Thuộc tính nào
+  chỉ dùng bên trong Device (hoặc lớp con) thì không cần.
+
+  Với Device:
+
+  ┌──────────────┬─────────────────────────────────────┬────────────────────┐
+  │  Thuộc tính  │       Ai cần đọc từ bên ngoài       │   Cần property?    │
+  ├──────────────┼─────────────────────────────────────┼────────────────────┤
+  │ _device_id   │ ClassRoom.find_device,              │ Có                 │
+  │              │ BorrowingSlip, ngoại lệ             │                    │
+  ├──────────────┼─────────────────────────────────────┼────────────────────┤
+  │ _status      │ _validate_borrowing,                │ Có                 │
+  │              │ get_devices_requiring_maintenance   │                    │
+  ├──────────────┼─────────────────────────────────────┼────────────────────┤
+  │ _max_days    │ _validate_borrowing                 │ Có (đặt tên        │
+  │              │                                     │ max_borrow_days)   │
+  ├──────────────┼─────────────────────────────────────┼────────────────────┤
+  │ _max_periods │ _validate_borrowing                 │ Có                 │
+  ├──────────────┼─────────────────────────────────────┼────────────────────┤
+  │ _name        │ main khi in tên thiết bị            │ Nên có             │
+  ├──────────────┼─────────────────────────────────────┼────────────────────┤
+  │              │                                     │ Nên có (lớp con    │
+  │ _price       │ Lớp con tính chi phí bảo trì        │ dùng self._price   │
+  │              │                                     │ cũng được)         │
+  ├──────────────┼─────────────────────────────────────┼────────────────────┤
+  │ _year        │ Chỉ get_years_in_use() bên trong    │ Không bắt buộc     │
+  │              │ lớp                                 │                    │
+  └──────────────┴─────────────────────────────────────┴────────────────────┘
+
+  Vậy tối thiểu cần 4 property: device_id, status, max_borrow_days, max_periods.
+  Thêm name và purchase_price nếu bạn muốn dùng ở main hoặc cho rõ ràng.
+
+  Quy tắc này dùng tiếp cho các lớp sau. Ví dụ:
+  - BorrowItem cần property device, due_date, returned_date.
+  - BorrowingSlip cần slip_id, borrower, items.
+
+  Khi đang viết mà thấy lớp khác phải gõ obj._abc mới lấy được dữ liệu, đó là
+  dấu hiệu cần thêm property abc.
+
+> nghĩa là chỉ thêm property cho thuộc tính cần hiển thị ra bên ngoài thôi phải
+  không
+
+● Đúng, nhưng "bên ngoài" ở đây nghĩa là bất kỳ code nào nằm ngoài lớp đó, không
+  chỉ chỗ in ra màn hình. Ví dụ BorrowingSlip cần đọc device.status để kiểm tra
+  điều kiện, dù không in gì ra. Vẫn tính là "bên ngoài", nên status cần
+  property.
+
+  Quy tắc gọn:
+  - Code nằm trong lớp (kể cả lớp con) dùng self._x, không cần property.
+  - Code ở lớp khác hoặc main cần đọc, thì thêm property x.
+
+> nếu vậy cứ chắc cú viết property hết cho tất cả thuộc tính cũng được mà phải
+  không
+
+● Được. Viết property chỉ có getter cho tất cả thuộc tính không gây hại gì: dữ
+  liệu vẫn được bảo vệ vì bên ngoài chỉ đọc được. Cái giá duy nhất là code dài
+  hơn một chút. Với bài lab, đầy đủ còn dễ cho người chấm thấy bạn hiểu đóng
+  gói.
+
+  Hai điều cần giữ:
+
+  1. Chỉ viết getter, đừng viết setter cho tất cả. Thêm setter là mở lại cửa cho
+     bên ngoài sửa. Đặc biệt device_id tuyệt đối không có setter; status cũng
+     không, vì nó chỉ được đổi qua mark_as_borrowed(), mark_as_available(),
+     mark_as_under_maintenance().
+  2. Getter trả về self._x, không phải self.x. Viết return self.x trong property
+     x sẽ tự gọi lại chính nó vô hạn và báo RecursionError.
+
+  @property
+  def year_in_service(self):
+      return self._year        # đúng
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> kiểm tra hàm get_year_in_use
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Hàm models.py:103-105 (models.py#L103-L105) đã đúng logic. date.today().year -
+  self.year cho ra số năm sử dụng; ví dụ đưa vào dùng năm 2019 thì trả về 7.
+  Dùng self.year (đọc qua property) hay self._year đều được, kết quả như nhau.
+
+  Vài điểm nên chỉnh cho gọn và khớp với sơ đồ:
+
+  def get_years_in_use(self) -> int:
+      return date.today().year - self._year
+
+  - Tên hàm: đổi thành get_years_in_use (có "s") cho khớp với sơ đồ UML của bạn.
+  - Biến trung gian: biến S không cần thiết, return thẳng là được.
+
+  Phần property đã làm đúng mẫu: lưu vào _x, getter trả về self._x. Nhưng Device
+  vẫn còn các lỗi cũ chưa sửa:
+
+  1. Chưa lưu trạng thái, và chưa có property status. ClassRoom và BorrowingSlip
+     sẽ không kiểm tra được trạng thái. Thêm vào cuối __init__:
+  self._status = status
+     và thêm property:
+  @property
+  def status(self):
+      return self._status
+  2. models.py:67 (models.py#L67) và models.py:70 (models.py#L70): đổi is None
+     and ... .strip() thành if not x or not x.strip():.
+  3. models.py:44 (models.py#L44): thêm (BorrowingException).
+  4. Tên property max_days: sơ đồ ghi max_borrow_days. Chọn một tên và dùng
+     thống nhất ở cả code lẫn UML.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> các bước tiếp theo
+
+  Read 1 file (ctrl+o to expand)
+
+● Trước khi làm tiếp, còn 3 chỗ cần sửa trong phần đã viết:
+
+  1. Có property status nhưng chưa có dòng gán. models.py:105 (models.py#L105)
+     trả về self._status, mà __init__ chưa có self._status = status. Gọi
+     d.status sẽ báo AttributeError. Thêm dòng này vào cuối __init__.
+  2. models.py:44 (models.py#L44): vẫn thiếu (BorrowingException).
+  3. models.py:98 (models.py#L98): property tên max_days, trong khi tham số đã
+     đổi thành max_borrow_days. Đổi tên property thành max_borrow_days cho khớp
+     với UML.
+
+  Tiếp theo: hoàn thành Bước 3, phần còn lại của Device
+
+  a. Phương thức trừu tượng. Lớp con bắt buộc phải tự viết phương thức này:
+
+  @abstractmethod
+  def calculate_annual_maintenance_cost(self) -> Decimal:
+      pass
+
+  b. Ba phương thức đổi trạng thái. Đây là cách duy nhất để thay đổi _status từ
+  bên ngoài:
+
+  def mark_as_borrowed(self):
+      self._status = DeviceStatus.BORROWED
+
+  Viết tương tự cho mark_as_available() và mark_as_under_maintenance().
+
+  c. __str__: trả về chuỗi mô tả thiết bị, ví dụ:
+
+  def __str__(self):
+      return f"[{self._device_id}] {self._name} ({self._year}) -
+  {self._status.value}"
+
+  Chạy thử: viết một lớp con tạm, hoặc đợi xong Bước 4. Riêng Device("D1", ...)
+  phải báo TypeError: Can't instantiate abstract class.
+
+  Bước 4: ba lớp con
+
+  Mẫu cho một lớp:
+
+  class Microphone(Device):
+      def __init__(self, device_id, name, year, price, is_wireless,
+                   status=DeviceStatus.AVAILABLE):
+          super().__init__(device_id, name, year, price,
+                           max_borrow_days=1, max_periods=5, status=status)
+          self._is_wireless = is_wireless
+
+      @property
+      def is_wireless(self):
+          return self._is_wireless
+
+      def calculate_annual_maintenance_cost(self) -> Decimal:
+          rate = Decimal("0.15") if self._is_wireless else Decimal("0.05")
+          return self._price * rate
+
+  Lớp con tự quyết giới hạn mượn: micro là 1 ngày, nên không để người dùng
+  truyền vào. Bạn viết tiếp hai lớp còn lại theo mẫu này:
+  - AirConditionerRemote: thuộc tính supported_model, ví dụ 3 ngày, 5 tiết. Công
+    thức gợi ý: giá × 0.05 + số năm sử dụng × 10000.
+  - ProjectorRemote: thuộc tính projector_brand, ví dụ 3 ngày, 5 tiết. Công thức
+    gợi ý: giá × 0.08.
+
+  Công thức nào cũng được, miễn mỗi lớp một công thức khác nhau, để thể hiện
+  tính đa hình.
+
+  Lưu ý: giá nên truyền vào dạng Decimal("200000"). Nếu truyền float, phép nhân
+  với Decimal sẽ báo TypeError.
+
+  Chạy thử sau Bước 4
+
+  if __name__ == "__main__":
+      mic = Microphone("MIC01", "Micro không dây", 2020, Decimal("500000"),
+  True)
+      print(mic)
+      print(mic.get_years_in_use())
+      print(mic.calculate_annual_maintenance_cost())
+      mic.mark_as_borrowed()
+      print(mic.status)
+
+  Chạy được hết là xong Bước 3 và 4. Sau đó chuyển sang Bước 5 (ClassRoom).
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> microphone có thuộc tính is_wireless á sao tôi k thấy
+
+● Thuộc tính này không có trong đề bài. Nó nằm trong sơ đồ UML của chính bạn: cả
+  bản C# lẫn bản Python đều có dòng - _is_wireless : bool trong lớp Microphone.
+  Tương tự, AirConditionerRemote có _supported_model và ProjectorRemote có
+  _projector_brand.
+
+  Có lẽ người vẽ sơ đồ thêm vào vì hai lý do:
+  - Đề nhắc tới "micro không dây" ở tình huống kiểm thử 11.1, bước 2.
+  - Mục "Các lớp dẫn xuất" trong đề bị bỏ trống. Mỗi lớp con cần ít nhất một
+    thuộc tính riêng, để thấy nó khác lớp cha ở điểm nào và để công thức tính
+    chi phí bảo trì có lý do khác nhau.
+
+  Không bắt buộc phải dùng đúng các thuộc tính này. Bạn có thể đổi thành thứ
+  khác hợp lý hơn, ví dụ micro thì battery_type, điều hòa thì room_count. Chỉ
+  cần nhớ:
+  1. Mỗi lớp con có ít nhất một thuộc tính riêng.
+  2. Công thức calculate_annual_maintenance_cost() của mỗi lớp khác nhau.
+  3. Code và sơ đồ UML khớp nhau. Nếu đổi tên trong code thì sửa luôn trong sơ
+     đồ.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> sao trong thuộc tính của microphone k nói tới max_borrow_Days, max_periods mà
+  ở dòng dưới super init mới nói đến
+
+● Vì hai giá trị này do lớp Microphone tự quyết định, không để người dùng nhập
+  vào.
+
+  Tham số của __init__ = những gì người tạo đối tượng phải cung cấp
+
+  def __init__(self, device_id, name, year, price, is_wireless, status=...):
+
+  Khi tạo micro, người dùng chỉ cần đưa mã, tên, năm, giá, có không dây không:
+
+  mic = Microphone("MIC01", "Micro", 2020, Decimal("500000"), True)
+
+  Người dùng không truyền max_borrow_days. Nếu cho truyền, ai đó có thể tạo
+  micro mượn 30 ngày, sai quy định "micro tối đa 1 ngày".
+
+  super().__init__(...) = những gì lớp cha cần để khởi tạo
+
+  super().__init__(device_id, name, year, price,
+                   max_borrow_days=1, max_periods=5, status=status)
+
+  Device.__init__ đòi đủ 7 tham số. Microphone lấy 5 cái từ người dùng chuyển
+  tiếp lên, còn 2 cái max_borrow_days, max_periods thì tự điền giá trị cố định
+  là 1 và 5.
+
+  Sau đó Device.__init__ chạy và gán self._max_days = 1, self._max_periods = 5.
+  Hai thuộc tính này vẫn nằm trong đối tượng micro, chỉ là được tạo ở lớp cha:
+
+  mic.max_borrow_days   # 1, kế thừa từ Device
+  mic.is_wireless       # True, của riêng Microphone
+
+  Luồng dữ liệu:
+
+  Người dùng ──(id, tên, năm, giá, is_wireless)──► Microphone.__init__
+                                                       │
+                       tự thêm max_borrow_days=1, max_periods=5
+                                                       │
+                                                       ▼
+                                                Device.__init__
+                                       (kiểm tra và lưu 7 thuộc tính chung)
+                                                       │
+                                                       ▼
+                           Microphone lưu thêm _is_wireless (riêng)
+
+  Đó cũng là lý do sơ đồ UML ghi max_borrow_days và max_periods ở lớp Device
+  (thuộc tính chung, # protected), còn Microphone chỉ liệt kê _is_wireless, thứ
+  nó có thêm. Trong UML, lớp con không ghi lại thuộc tính đã kế thừa.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> tiếp tục
+
+  Read 1 file (ctrl+o to expand)
+
+● Phần lớn đã đúng hướng. Có 3 lỗi sẽ làm chương trình hỏng, cần sửa trước khi
+  đi tiếp.
+
+  Lỗi nghiêm trọng
+
+  1. Thiếu mark_as_available(). Bạn có mark_as_retired (thêm vào cũng tốt),
+  nhưng lại thiếu hàm đưa thiết bị về trạng thái sẵn sàng. Khi trả thiết bị
+  (return_device) sẽ cần đúng hàm này.
+
+  def mark_as_available(self):
+      self._status = DeviceStatus.AVAILABLE
+
+  2. models.py:127-129 (models.py#L127-L129): property is_wireless bị thụt lề
+  vào trong __init__. Lúc này nó chỉ là hàm con tạm thời bên trong __init__,
+  không phải property của lớp, nên mic.is_wireless sẽ báo AttributeError. Lùi lề
+  ra ngang hàng với def __init__:
+
+  class Microphone(Device):
+      def __init__(self, ...):
+          super().__init__(...)
+          self._is_wireless = is_wireless
+
+      @property                      # ngang hàng với def __init__
+      def is_wireless(self):
+          return self._is_wireless
+
+  3. models.py:141 (models.py#L141): gọi hàm thiếu ().
+
+  self.get_years_in_use * 10000      # sai: nhân chính cái hàm với 10000, báo
+  TypeError
+  self.get_years_in_use() * 10000    # đúng: gọi hàm để lấy số năm, rồi nhân
+
+  Nên sửa để khớp đề và UML
+
+  Dòng: 113, 130, 140, 150
+  Hiện tại: calculate_maintenance_cost
+  Nên đổi thành: calculate_annual_maintenance_cost
+  Lý do: Đề ghi CalculateAnnualMaintenanceCost. Đổi ở cả 4 chỗ, nếu không lớp
+  con
+  sẽ không ghi đè được hàm trừu tượng.
+  ────────────────────────────────────────
+  Dòng: 101
+  Hiện tại: max_days
+  Nên đổi thành: max_borrow_days
+  Lý do: Khớp với tham số và UML
+  ────────────────────────────────────────
+  Dòng: 117
+  Hiện tại: mark_as_undermaintenance
+  Nên đổi thành: mark_as_under_maintenance
+  Lý do: Khớp UML
+  ────────────────────────────────────────
+  Dòng: 133
+  Hiện tại: AirconditionerRemote
+  Nên đổi thành: AirConditionerRemote
+  Lý do: Khớp UML
+  ────────────────────────────────────────
+  Dòng: 144-149
+  Hiện tại: projector_band
+  Nên đổi thành: projector_brand
+  Lý do: "band" là ban nhạc, "brand" mới là hãng
+
+  Chạy thử
+
+  Sửa xong, thêm vào cuối file rồi chạy python models.py:
+
+  if __name__ == "__main__":
+      mic = Microphone("MIC01", "Micro không dây", 2020, Decimal("500000"),
+  True)
+      ac = AirConditionerRemote("AC01", "Remote điều hòa", 2018,
+  Decimal("300000"), "Daikin")
+      pj = ProjectorRemote("PJ01", "Remote máy chiếu", 2022, Decimal("200000"),
+  "Epson")
+
+      for d in (mic, ac, pj):
+          print(d, "| năm dùng:", d.get_years_in_use(),
+                "| bảo trì:", d.calculate_annual_maintenance_cost())
+
+      mic.mark_as_borrowed();  print(mic.status)
+      mic.mark_as_available(); print(mic.status)
+      print(mic.is_wireless, mic.max_borrow_days)
+
+  Kết quả mong đợi:
+  - Bảo trì: micro 75000, điều hòa 95000 (15000 + 8 × 10000), máy chiếu 16000.
+  - Trạng thái micro chuyển BORROWED rồi về AVAILABLE.
+  - Dòng cuối in True 1.
+
+  Bước 5: ClassRoom
+
+  Khung để bạn tự điền:
+
+  class ClassRoom:
+      def __init__(self, room_id, room_name, capacity):
+          # kiểm tra room_id, room_name không rỗng; capacity > 0
+          # gán self._room_id, self._room_name, self._capacity
+          self._devices = []
+
+      # property: room_id, room_name, capacity
+      # property devices: trả về tuple(self._devices)
+
+      def find_device(self, device_id):
+          # duyệt self._devices, trùng device_id thì return d
+          # hết vòng lặp thì return None
+
+      def add_device(self, device):
+          # device là None: raise ValueError
+          # find_device(device.device_id) khác None: raise
+  DuplicateDeviceException
+          # self._devices.append(device)
+
+      def remove_device(self, device_id) -> bool:
+          # tìm bằng find_device; thấy thì remove và return True, không thấy thì
+  return False
+
+      def calculate_annual_maintenance_cost(self) -> Decimal:
+          # sum((d.calculate_annual_maintenance_cost() for d in self._devices),
+  Decimal("0"))
+
+      def get_devices_requiring_maintenance(self) -> list:
+          # trả về list các d có:
+          #   d.status == DeviceStatus.UNDER_MAINTENANCE  hoặc
+  d.get_years_in_use() > 5
+
+  Điểm người chấm sẽ xem kỹ: calculate_annual_maintenance_cost không được có if
+  hay isinstance để phân biệt loại thiết bị. Mỗi thiết bị tự biết cách tính chi
+  phí của mình; đó chính là tính đa hình.
+
+> tôi cài mặt định là Availble không được à
+
+● Mặc định AVAILABLE trong __init__ là đúng và nên giữ. Nhưng nó không thay được
+  mark_as_available(), vì hai thứ này dùng ở hai thời điểm khác nhau:
+
+  ┌─────────┬─────────────────────────────────────┬─────────────────────────┐
+  │         │ status=DeviceStatus.AVAILABLE trong │   mark_as_available()   │
+  │         │               __init__              │                         │
+  ├─────────┼─────────────────────────────────────┼─────────────────────────┤
+  │ Khi nào │ Một lần, lúc tạo thiết bị           │ Bất kỳ lúc nào sau đó   │
+  │  chạy   │                                     │                         │
+  ├─────────┼─────────────────────────────────────┼─────────────────────────┤
+  │ Tác     │ Thiết bị mới tạo thì sẵn sàng       │ Đưa thiết bị trở lại    │
+  │ dụng    │                                     │ sẵn sàng                │
+  └─────────┴─────────────────────────────────────┴─────────────────────────┘
+
+  Vòng đời của một cái micro:
+
+  tạo mới          → AVAILABLE   (giá trị mặc định trong __init__)
+  mượn             → BORROWED    (mark_as_borrowed)
+  trả              → AVAILABLE   (mark_as_available)  ← cần hàm này
+  mượn lần nữa     → BORROWED
+  ...
+
+  Sau khi bị mượn, trạng thái đã thành BORROWED. __init__ không chạy lại được,
+  vì gọi lại là tạo một thiết bị mới, không phải sửa thiết bị cũ. Còn _status
+  thì không có setter, nên ngoài mark_as_...() ra không còn cách nào đổi trạng
+  thái về AVAILABLE.
+
+  Nếu thiếu hàm này, ở Bước 8 khi viết return_device (mục 9.3 của đề: "7. Chuyển
+  thiết bị về Available"), bạn sẽ không có gì để gọi. Thiết bị trả rồi vẫn kẹt
+  ở BORROWED, và không ai mượn lại được.
+
+  Vậy giữ cả hai: mặc định AVAILABLE trong __init__, và thêm
+  mark_as_available().
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\main.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> bị lỗi gì vậy
+
+  Read 2 files (ctrl+o to expand)
+
+● Let me run it to see the actual error.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Tôi đã chạy python main.py. Phần lớn đã chạy đúng: chi phí bảo trì ra 75000,
+  95000, 16000 như mong đợi, và trạng thái chuyển BORROWED rồi về AVAILABLE. Lỗi
+  chỉ xảy ra ở dòng cuối cùng:
+
+  AttributeError: 'Microphone' object has no attribute '_max_borrow_days'
+
+  Nguyên nhân là tên kho và tên trong property không khớp nhau:
+
+  # models.py dòng 81, trong __init__
+  self._max_days = max_borrow_days        # lưu vào _max_days
+
+  # models.py dòng 102, trong property
+  return self._max_borrow_days            # nhưng lại đọc _max_borrow_days
+
+  Bạn đã đổi tên property thành max_borrow_days (đúng), nhưng trong getter lại
+  đọc self._max_borrow_days, trong khi dữ liệu được lưu ở self._max_days. Sửa
+  một trong hai chỗ để khớp nhau. Gọn nhất là sửa dòng 81:
+
+  self._max_borrow_days = max_borrow_days
+
+  Còn một lỗi cùng loại chưa lộ ra vì chưa gọi tới. models.py:151
+  (models.py#L151):
+
+  return self._projector_band     # kho thật tên là _projector_brand (dòng 148)
+
+  Gọi pj.projector_brand sẽ báo lỗi y hệt. Sửa thành self._projector_brand.
+
+  Quy tắc chung: tên trong self._x = ... (ở __init__) và tên trong return
+  self._x (ở property) phải giống hệt nhau từng ký tự.
+
+  Vài chỗ đổi tên tôi nêu lần trước vẫn chưa làm. Code vẫn chạy được, nhưng sẽ
+  lệch so với đề và UML:
+  - calculate_maintenance_cost nên đổi thành calculate_annual_maintenance_cost
+    (5 chỗ: 4 trong models.py và 1 trong main.py:9 (main.py#L9)).
+  - AirconditionerRemote nên đổi thành AirConditionerRemote.
+  - mark_as_undermaintenance nên đổi thành mark_as_under_maintenance.
+
+  Sửa xong thì chạy lại python main.py. Dòng cuối phải in ra True 1. Khi đó Bước
+  3 và 4 hoàn tất, bạn chuyển sang Bước 5 (ClassRoom).
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> tiếp
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● python main.py đã chạy hết, dòng cuối in ra True 1. Bước 3 và 4 coi như xong.
+
+  Còn sót 1 lỗi chưa sửa: models.py:151 (models.py#L151) vẫn là
+  self._projector_band, phải là self._projector_brand. Ba chỗ đổi tên
+  (calculate_annual_maintenance_cost, AirConditionerRemote,
+  mark_as_under_maintenance) bạn nên làm ngay bây giờ. Càng viết thêm nhiều lớp,
+  số chỗ phải đổi sẽ càng nhiều.
+
+  Bước 5: ClassRoom
+
+  Viết ngay dưới ProjectorRemote trong models.py, theo khung đã đưa ở lượt
+  trước. Tóm lại:
+
+  ┌─────────────────────────────────────┬───────────────────────────────────┐
+  │             Phương thức             │           Việc cần làm            │
+  ├─────────────────────────────────────┼───────────────────────────────────┤
+  │ __init__(room_id, room_name,        │ Kiểm tra id và tên không rỗng,    │
+  │ capacity)                           │ capacity > 0; gán _...;           │
+  │                                     │ self._devices = []                │
+  ├─────────────────────────────────────┼───────────────────────────────────┤
+  │ Các property                        │ room_id, room_name, capacity,     │
+  │                                     │ devices (trả về tuple)            │
+  ├─────────────────────────────────────┼───────────────────────────────────┤
+  │                                     │ Duyệt danh sách, gặp mã trùng thì │
+  │ find_device(device_id)              │  return thiết bị đó; hết vòng thì │
+  │                                     │  return None                      │
+  ├─────────────────────────────────────┼───────────────────────────────────┤
+  │                                     │ None thì ValueError; trùng mã thì │
+  │ add_device(device)                  │  DuplicateDeviceException; hợp lệ │
+  │                                     │  thì append                       │
+  ├─────────────────────────────────────┼───────────────────────────────────┤
+  │ remove_device(device_id)            │ Tìm được thì xóa và return True,  │
+  │                                     │ không tìm được thì return False   │
+  ├─────────────────────────────────────┼───────────────────────────────────┤
+  │ calculate_annual_maintenance_cost() │ sum(..., Decimal("0")), không     │
+  │                                     │ dùng if hay isinstance            │
+  ├─────────────────────────────────────┼───────────────────────────────────┤
+  │                                     │ Lọc các thiết bị                  │
+  │ get_devices_requiring_maintenance() │ UNDER_MAINTENANCE hoặc dùng trên  │
+  │                                     │ 5 năm                             │
+  └─────────────────────────────────────┴───────────────────────────────────┘
+
+  Viết xong, thay toàn bộ main.py bằng đoạn thử sau:
+
+  from models import *
+
+  if __name__ == "__main__":
+      mic = Microphone("MIC01", "Micro không dây", 2020, Decimal("500000"),
+  True)
+      ac = AirConditionerRemote("AC01", "Remote điều hòa", 2018,
+  Decimal("300000"), "Daikin")
+      pj = ProjectorRemote("PJ01", "Remote máy chiếu", 2022, Decimal("200000"),
+  "Epson")
+
+      room = ClassRoom("B204", "Phòng B204", 40)
+      for d in (mic, ac, pj):
+          room.add_device(d)
+
+      print("Tổng bảo trì:", room.calculate_annual_maintenance_cost())   #
+  186000.00
+      print("Tìm PJ01:", room.find_device("PJ01"))
+      print("Tìm XX:", room.find_device("XX"))                           # None
+
+      pj.mark_as_under_maintenance()
+      print("Cần bảo trì:", [d.device_id for d in
+  room.get_devices_requiring_maintenance()])
+      # ['AC01', 'PJ01']: AC01 dùng 8 năm, PJ01 đang bảo trì
+
+      try:
+          room.add_device(mic)
+      except DuplicateDeviceException as e:
+          print("Lỗi:", e)
+
+      print("Xóa MIC01:", room.remove_device("MIC01"))   # True
+      print("Xóa MIC01:", room.remove_device("MIC01"))   # False
+
+  Nếu kết quả khớp với các comment trong đoạn thử, ClassRoom đã đúng. Bước tiếp
+  theo là Bước 6: IBorrower, Lecturer, TeachingAssistant.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> device trả về tuple kiểu gì
+● Ý là property devices trả về bản sao dạng tuple của danh sách bên trong, để
+  bên ngoài xem được nhưng không thêm hay xóa được:
+
+  class ClassRoom:
+      def __init__(self, room_id, room_name, capacity):
+          ...
+          self._devices = []              # kho thật: list, sửa được
+
+      @property
+      def devices(self):
+          return tuple(self._devices)     # đưa ra ngoài: tuple, không sửa được
+
+  tuple(...) chuyển một list thành tuple. Tuple giống list nhưng không có
+  append, remove và không gán phần tử được:
+
+  room.add_device(mic)
+  room.add_device(ac)
+
+  print(room.devices)               # (<Microphone...>,
+  <AirConditionerRemote...>)
+  for d in room.devices:            # duyệt được bình thường
+      print(d)
+  print(len(room.devices))          # 2
+
+  room.devices.append(pj)           # AttributeError: 'tuple' object has no
+  attribute 'append'
+  room.devices[0] = pj              # TypeError: không gán được
+
+  Nếu trả thẳng self._devices thì sao?
+
+  @property
+  def devices(self):
+      return self._devices            # trả về chính cái list bên trong
+
+  room.devices.append(mic)            # chạy được, và thêm trùng mà không bị
+  kiểm tra
+
+  Property chỉ chặn được việc gán lại (room.devices = ...). Nó không chặn được
+  việc sửa bên trong cái list được trả ra. Bên ngoài sẽ lách qua add_device (bỏ
+  qua kiểm tra None và trùng mã), làm dữ liệu sai.
+
+  Trả về tuple buộc mọi thay đổi phải đi qua add_device và remove_device, nơi có
+  kiểm tra. Đây cũng là cách làm cho BorrowingSlip.items ở Bước 8, tương ứng
+  với yêu cầu IReadOnlyList trong đề.
+
+  Lưu ý: tuple chỉ khóa danh sách, không khóa từng thiết bị bên trong.
+  room.devices[0].mark_as_borrowed() vẫn chạy được, và như vậy là đúng ý, vì
+  thiết bị tự quản lý trạng thái của nó qua các phương thức mark_as_....
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> thế tại sao lại trả về tuple
+
+● Vì trong các lựa chọn có sẵn của Python, tuple là thứ gần nhất với "danh sách
+  chỉ đọc" mà đề yêu cầu (IReadOnlyList trong C#). Python không có kiểu
+  IReadOnlyList, nên phải chọn cách thay thế.
+
+  So sánh các cách trả về:
+
+  Cách: return self._devices
+  Bên ngoài append được không?: Được
+  Có ảnh hưởng kho bên trong không?: Có, sửa thẳng vào kho
+  Đánh giá: Sai, lộ dữ liệu
+  ────────────────────────────────────────
+  Cách: return list(self._devices)
+  Bên ngoài append được không?: Được
+  Có ảnh hưởng kho bên trong không?: Không, chỉ sửa bản sao
+  Đánh giá: Chạy đúng nhưng gây hiểu lầm: người dùng tưởng đã thêm được thiết bị
+  ────────────────────────────────────────
+  Cách: return tuple(self._devices)
+  Bên ngoài append được không?: Không, báo lỗi ngay
+  Có ảnh hưởng kho bên trong không?: Không
+  Đánh giá: Đúng ý: báo rõ "chỉ để xem"
+
+  Lý do chọn tuple:
+
+  1. Không sửa được (immutable). Ai cố append sẽ bị báo lỗi ngay, không âm thầm
+     làm sai.
+  2. Có sẵn, không cần import. Một dòng tuple(...) là xong.
+  3. Vẫn dùng như list khi đọc. Duyệt for, lấy len(), truy cập [0] đều được, nên
+     code ở main hay BorrowingSlip không phải viết khác.
+  4. Thể hiện rõ ý đồ. Người đọc code thấy tuple là hiểu ngay "danh sách này chỉ
+     để xem, muốn thay đổi thì dùng add_device hoặc remove_device".
+
+> nếu cần remove, add thêm thiết bị thì sao
+
+● Thì gọi phương thức của lớp, không sửa trực tiếp vào danh sách:
+
+  room.add_device(pj)          # thêm
+  room.remove_device("PJ01")   # xóa
+
+  Hai phương thức này nằm bên trong ClassRoom, nên được phép sửa thẳng vào kho
+  self._devices (là list, vẫn append và remove bình thường):
+
+  class ClassRoom:
+      def add_device(self, device):
+          if device is None:
+              raise ValueError("Thiết bị không được None")
+          if self.find_device(device.device_id) is not None:
+              raise DuplicateDeviceException(device.device_id)
+          self._devices.append(device)        # sửa kho thật, sau khi đã kiểm
+  tra
+
+      def remove_device(self, device_id) -> bool:
+          device = self.find_device(device_id)
+          if device is None:
+              return False
+          self._devices.remove(device)        # sửa kho thật
+          return True
+
+  Phân chia vai trò:
+
+  ┌────────────────┬───────────────────────────────────┬────────────────────┐
+  │                │              Dùng gì              │    Làm được gì     │
+  ├────────────────┼───────────────────────────────────┼────────────────────┤
+  │ Bên ngoài xem  │ room.devices (tuple)              │ Duyệt, đếm, lấy    │
+  │                │                                   │ phần tử            │
+  ├────────────────┼───────────────────────────────────┼────────────────────┤
+  │ Bên ngoài thay │ room.add_device(),                │ Thêm, xóa, có kiểm │
+  │  đổi           │ room.remove_device()              │  tra               │
+  ├────────────────┼───────────────────────────────────┼────────────────────┤
+  │ Bên trong lớp  │ self._devices (list)              │ Mọi thứ            │
+  └────────────────┴───────────────────────────────────┴────────────────────┘
+
+  Đây chính là ý nghĩa của đóng gói: bên ngoài không được tự tay sửa dữ liệu, mà
+  phải "nhờ" lớp sửa giúp. Lớp sẽ kiểm tra trước (không None, không trùng mã)
+  rồi mới sửa. Nhờ vậy, danh sách thiết bị trong phòng luôn hợp lệ, dù ai gọi từ
+  đâu.
+
+  BorrowingSlip ở Bước 8 cũng làm y hệt: items trả về tuple để xem; muốn thêm
+  thì gọi add_device(), muốn trả thì gọi return_device().
+
+> nghĩa là vẫn sẽ thêm xóa phần tử được chỉ là nếu hiện ở dạng tuple thì người
+  xem không thể can thiệp vô được
+
+● Đúng vậy:
+
+  - Danh sách thật (self._devices) vẫn thêm và xóa được, nhưng chỉ qua
+    add_device() và remove_device().
+  - Bản đưa ra ngoài (room.devices) là tuple, nên người xem chỉ nhìn được, không
+    can thiệp được.
+
+  Có một điểm cần nhớ: tuple là bản chụp tại thời điểm gọi. Sau khi thêm hoặc
+  xóa, phải gọi room.devices lại mới thấy danh sách mới:
+
+  ds = room.devices          # chụp lúc có 2 thiết bị
+  room.add_device(pj)
+
+  print(len(ds))             # 2: bản chụp cũ, không tự cập nhật
+  print(len(room.devices))   # 3: gọi lại thì lấy bản mới
+
+  Vì vậy, khi cần dữ liệu mới nhất, hãy gọi thẳng room.devices thay vì lưu vào
+  biến rồi dùng lâu.
+
+> thế dùng cái gì để người ngoài có thể xem và can thiệp được
+
+● Có hai cách cho phép bên ngoài vừa xem vừa sửa trực tiếp:
+
+  # Cách 1: thuộc tính public
+  self.devices = []
+
+  # Cách 2: property trả về chính list bên trong
+  @property
+  def devices(self):
+      return self._devices
+
+  Với cả hai cách, bên ngoài viết room.devices.append(x) hay
+  room.devices.remove(x) đều được, và sửa thẳng vào kho thật.
+
+  Bài này không nên dùng hai cách đó. Bên ngoài sẽ lách qua add_device, nên mọi
+  kiểm tra bị bỏ qua:
+
+  room.devices.append(None)    # thêm None, đề cấm
+  room.devices.append(mic)     # thêm trùng mã, đề cấm
+
+  Đề bài ghi rõ "Không thêm hai thiết bị có cùng mã" và "Không chấp nhận đối
+  tượng thiết bị null". Nếu mở cửa như trên, hai quy tắc này coi như vô hiệu.
+
+  Cách đúng để bên ngoài can thiệp được mà vẫn an toàn chính là phương thức. Nếu
+  cần thêm thao tác nào, bạn viết thêm phương thức cho thao tác đó, ví dụ:
+
+  def clear_devices(self):          # muốn xóa hết
+      self._devices.clear()
+
+  def replace_device(self, old_id, new_device):   # muốn thay thế
+      if not self.remove_device(old_id):
+          return False
+      self.add_device(new_device)   # vẫn đi qua kiểm tra
+      return True
+
+  Nguyên tắc: xem qua property (tuple), sửa qua phương thức (có kiểm tra). Cửa
+  sửa nào cũng có người gác.
+
+> tiếp các bước
+
+  Read 2 files (ctrl+o to expand)
+
+● ClassRoom mới viết được phần __init__ và property. Phần đó có 3 lỗi gõ, sửa
+  trước rồi làm tiếp.
+
+  Sửa phần đã viết
+
+  1. models.py:155 (models.py#L155): CLassRoom viết hoa nhầm chữ L. Đổi thành
+     ClassRoom, nếu không main sẽ báo NameError.
+  2. models.py:160 (models.py#L160): .stip() gõ thiếu chữ r. Đổi thành .strip().
+     Lỗi này sẽ báo AttributeError ngay khi tạo phòng.
+  3. models.py:163 (models.py#L163): sai thứ tự kiểm tra. Nếu capacity là chuỗi,
+     vế capacity <= 0 chạy trước và báo TypeError, không tới được vế
+     isinstance. Đảo lại:
+  if not isinstance(capacity, int) or capacity <= 0:
+
+  Lỗi cũ ở models.py:151 (models.py#L151) (_projector_band) vẫn còn.
+
+  Bước 5 (tiếp): 5 phương thức còn lại của ClassRoom
+
+  Viết tiếp dưới property devices:
+
+  def find_device(self, device_id):
+      for d in self._devices:
+          if d.device_id == device_id:
+              return d
+      return None
+
+  Bốn phương thức còn lại bạn tự viết theo hướng dẫn:
+  - add_device(device): None thì raise ValueError;
+    self.find_device(device.device_id) is not None thì raise
+    DuplicateDeviceException(device.device_id); còn lại thì append.
+  - remove_device(device_id): dùng find_device; None thì return False; có thì
+    self._devices.remove(...) rồi return True.
+  - calculate_annual_maintenance_cost(): một dòng return sum((d.calculate_... ()
+    for d in self._devices), Decimal("0")).
+  - get_devices_requiring_maintenance(): return [d for d in self._devices if ...
+    or ...].
+
+  Viết xong, chạy đoạn thử ClassRoom tôi đưa ở lượt trước. Nhớ dùng đúng tên
+  phương thức và tên lớp như trong code của bạn.
+
+  Bước 6: người mượn
+
+  Viết dưới ClassRoom:
+
+  class IBorrower(ABC):
+      @property
+      @abstractmethod
+      def borrower_id(self):
+          pass
+
+      @property
+      @abstractmethod
+      def full_name(self):
+          pass
+
+      @abstractmethod
+      def get_maximum_devices(self) -> int:
+          pass
+
+  @property đặt trên @abstractmethod: đây là property mà lớp con bắt buộc phải
+  tự viết.
+
+  Mẫu cho lớp con:
+
+  class Lecturer(IBorrower):
+      def __init__(self, borrower_id, full_name):
+          # kiểm tra 2 chuỗi không rỗng (giống Device)
+          self._borrower_id = borrower_id
+          self._full_name = full_name
+
+      @property
+      def borrower_id(self):
+          return self._borrower_id
+
+      @property
+      def full_name(self):
+          return self._full_name
+
+      def get_maximum_devices(self) -> int:
+          return 3
+
+  TeachingAssistant y hệt Lecturer, chỉ khác return 2.
+
+  Lưu ý thứ tự: hai lớp này có __init__ và property giống hệt nhau. Lặp lại như
+  vậy là chấp nhận được, vì đề yêu cầu "hai lớp thực thi interface", và nhờ vậy
+  sơ đồ UML của bạn vẫn khớp.
+
+  Thử nhanh:
+
+  gv = Lecturer("GV01", "Nguyễn Văn A")
+  tg = TeachingAssistant("TG01", "Trần Thị B")
+  print(gv.full_name, gv.get_maximum_devices())   # Nguyễn Văn A 3
+  print(tg.full_name, tg.get_maximum_devices())   # Trần Thị B 2
+  IBorrower()   # TypeError: Can't instantiate abstract class
+
+  Bước 7: BorrowItem (chi tiết phiếu mượn)
+
+  Chuẩn bị trước: sửa dòng import đầu file thành from datetime import date,
+  timedelta.
+
+  class BorrowItem:
+      def __init__(self, device, borrowed_date, due_date, from_period,
+  to_period):
+          # 1. device là None: ValueError
+          # 2. due_date < borrowed_date: ValueError
+          # 3. from_period < 1 hoặc from_period > to_period: ValueError
+          # 4. gán _device, _borrowed_date, _due_date, _from_period, _to_period
+          self._returned_date = None
+
+      # property: device, borrowed_date, due_date, from_period, to_period,
+  returned_date
+
+      def is_returned(self) -> bool:
+          return self._returned_date is not None
+
+      def mark_returned(self, returned_date):
+          # 1. đã trả rồi: raise
+  DeviceAlreadyReturnedException(self._device.device_id, self._returned_date)
+          # 2. returned_date < self._borrowed_date: raise
+  InvalidReturnDateException(...)
+          # 3. qua hết: self._returned_date = returned_date
+
+      def get_late_days(self, as_of) -> int:
+          end = self._returned_date if self._returned_date is not None else
+  as_of
+          return max(0, (end - self._due_date).days)
+
+      def is_late(self, as_of) -> bool:
+          # get_late_days(as_of) > 0
+
+      def calculate_late_fee(self, as_of) -> Decimal:
+          # get_late_days(as_of) * LATE_FEE_PER_DAY
+
+  Điểm quan trọng trong mark_returned: kiểm tra hết rồi mới gán. Nếu gán trước
+  rồi mới kiểm tra ngày, khi ngày sai thì item đã bị đánh dấu "đã trả", và dữ
+  liệu hỏng.
+
+  Thử nhanh:
+
+  item = BorrowItem(mic, date(2026, 10, 1), date(2026, 10, 2), 1, 3)
+  print(item.is_returned())                     # False
+  item.mark_returned(date(2026, 10, 4))
+  print(item.get_late_days(date(2026, 10, 4)))  # 2
+  print(item.calculate_late_fee(date(2026, 10, 4)))  # 20000
+  item.mark_returned(date(2026, 10, 5))         # DeviceAlreadyReturnedException
+
+  Làm xong Bước 5 đến 7 và chạy thử được hết, tiếp theo là Bước 8
+  (BorrowingSlip), phần quan trọng nhất của bài.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> của tôi viết thế có được không
+
+  Read 1 file (ctrl+o to expand)
+
+● Được. Phần ClassRoom đến giờ chạy đúng, và 3 lỗi gõ lần trước đã sửa hết, kể
+  cả _projector_brand.
+
+  Chỉ có một chỗ nên chỉnh ở models.py:181 (models.py#L181):
+
+  if i._device_id == device_id:     # đang đọc thẳng vào kho của Device
+  if i.device_id == device_id:      # nên đọc qua property
+
+  Code vẫn chạy được, nhưng ClassRoom là lớp khác, nằm ngoài Device. Theo quy
+  ước đã bàn, bên ngoài thì dùng property (không có _), còn _device_id để dành
+  cho code bên trong Device. Bạn đã viết property device_id thì dùng nó luôn.
+
+  Một góp ý nhỏ về đặt tên: i thường dùng cho chỉ số (0, 1, 2...). Ở đây biến là
+  một thiết bị, nên đặt d hoặc device cho dễ đọc. Không bắt buộc.
+
+  Tiếp theo, viết 4 phương thức còn lại của ClassRoom (add_device,
+  remove_device, calculate_annual_maintenance_cost,
+  get_devices_requiring_maintenance) theo hướng dẫn ở lượt trước. add_device và
+  remove_device nên gọi lại find_device mà bạn vừa viết.
+
+> tại sao nên đọc qua property
+
+● Có ba lý do.
+
+  1. Đổi bên trong Device thì ClassRoom không bị ảnh hưởng. Giả sử sau này bạn
+  đổi tên kho trong Device từ _device_id thành _id:
+
+  class Device:
+      def __init__(self, device_id, ...):
+          self._id = device_id            # đổi tên kho
+
+      @property
+      def device_id(self):
+          return self._id                 # chỉ sửa 1 chỗ ở đây
+
+  - Đọc qua property (d.device_id): ClassRoom, BorrowingSlip, main... vẫn chạy
+    nguyên, không phải sửa gì.
+  - Đọc thẳng kho (d._device_id): mọi lớp đang dùng _device_id đều hỏng, phải đi
+    tìm sửa từng chỗ.
+
+  Property là "hợp đồng" công khai giữa Device và thế giới bên ngoài. Còn
+  _device_id là chi tiết nội bộ, Device có quyền thay đổi bất cứ lúc nào.
+
+  2. Property có thể chứa thêm logic. Ví dụ sau này muốn mã luôn viết hoa:
+
+  @property
+  def device_id(self):
+      return self._device_id.upper()
+
+  Ai đọc qua property sẽ tự động nhận mã viết hoa. Ai đọc thẳng _device_id sẽ bỏ
+  lỡ, và hai chỗ cho ra kết quả khác nhau.
+
+  3. Đúng quy ước. Dấu _ nghĩa là "nội bộ, bên ngoài đừng đụng". Viết
+  d._device_id trong ClassRoom là tự phá quy ước mình đặt ra. Người chấm đọc
+  code sẽ thấy phần đóng gói không nhất quán: có property mà không dùng.
+
+  Tóm lại: bên trong lớp thì dùng self._x; bên ngoài lớp thì dùng obj.x. Với bài
+  lab nhỏ, đọc thẳng vẫn chạy, nhưng tập thói quen này từ giờ sẽ đỡ rất nhiều
+  công khi code lớn lên.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> nếu remove thì nên để remove(self.device_id) hay (device_id)
+
+● Dùng device_id (tham số), không dùng self.device_id. Nhưng cũng không truyền
+  thẳng device_id vào .remove(). Có hai chỗ cần phân biệt.
+
+  self.device_id sai vì ClassRoom không có thuộc tính đó
+
+  Trong ClassRoom, self là căn phòng, không phải thiết bị. Phòng chỉ có room_id,
+  room_name, capacity, devices, nên self.device_id sẽ báo AttributeError. Mã
+  thiết bị cần xóa là thứ người gọi truyền vào, tức tham số device_id.
+
+  list.remove() cần đối tượng, không nhận mã
+
+  self._devices chứa các đối tượng thiết bị, không chứa chuỗi mã:
+
+  self._devices.remove("MIC01")   # ValueError: list.remove(x): x not in list
+
+  Trong list không có phần tử nào là chuỗi "MIC01", chỉ có đối tượng Microphone.
+  Vì vậy phải tìm đối tượng trước, rồi xóa đối tượng đó:
+
+  def remove_device(self, device_id) -> bool:
+      device = self.find_device(device_id)   # dùng mã (tham số) để tìm đối
+  tượng
+      if device is None:
+          return False
+      self._devices.remove(device)           # xóa bằng đối tượng
+      return True
+
+  Luồng: "MIC01" (mã) → find_device → đối tượng micro → .remove(đối tượng).
+
+> tiếp
+
+● Failed to refresh OAuth token: another Claude Code process is
+  refreshing it or exited mid-refresh. This is usually transient; retry
+  in a minute, and if it persists close other Claude Code processes or
+  sign in again
+
+> toe[é
+
+  Read 1 file (ctrl+o to expand)
+
+● Bốn phương thức của ClassRoom đã có đủ, nhưng còn 2 lỗi làm sai kết quả và vài
+  chỗ nên chỉnh.
+
+  Lỗi cần sửa
+
+  1. models.py:199 (models.py#L199): gõ sai tên hàm calculata_.... Gọi tới sẽ
+  báo AttributeError. Tên ở đây phải giống hệt tên trong Device. Hiện Device vẫn
+  dùng calculate_maintenance_cost vì bạn chưa đổi tên; nếu đổi sang
+  calculate_annual_maintenance_cost thì đổi ở mọi chỗ cùng lúc.
+
+  2. models.py:201 (models.py#L201): thiếu điều kiện "dùng trên 5 năm". Đề yêu
+  cầu trả về thiết bị đang bảo trì hoặc đã dùng trên 5 năm:
+
+  return [d for d in self._devices
+          if d.status == DeviceStatus.UNDER_MAINTENANCE or d.get_years_in_use()
+  > 5]
+
+  Nên chỉnh
+
+  3. models.py:191-192 (models.py#L191-L192): hàm trả về bool nhưng chỗ này lại
+  trả về một chuỗi. Chuỗi không rỗng được Python coi là True, nên if
+  room.remove_device(None): sẽ tưởng là đã xóa được. Chọn một trong hai cách:
+
+  if not device_id:
+      return False                       # coi như không tìm thấy
+  # hoặc
+      raise ValueError("Mã thiết bị không được để trống")   # coi là lỗi đầu vào
+
+  4. models.py:194 (models.py#L194): gọi find_device hai lần. Dòng 193 đã lưu
+  kết quả vào device rồi, nên dòng 194 chỉ cần if device is None:.
+
+  5. models.py:189 (models.py#L189): return self._devices.append(device). append
+  luôn trả về None, nên return thừa. Chỉ cần self._devices.append(device).
+
+  Tiếp theo
+
+  Hoàn thành Lecturer (models.py:214 (models.py#L214)). Tham số đang tên là
+  borrow_id; nên đổi thành borrower_id cho khớp với interface. Phần thân còn
+  thiếu:
+
+  def __init__(self, borrower_id, full_name):
+      if not borrower_id or not borrower_id.strip():
+          raise ValueError("Mã người mượn không được để trống")
+      if not full_name or not full_name.strip():
+          raise ValueError("Họ tên không được để trống")
+      self._borrower_id = borrower_id
+      self._full_name = full_name
+
+  Sau đó thêm 2 property (borrower_id, full_name) và get_maximum_devices() trả
+  về 3. Rồi viết TeachingAssistant y hệt, chỉ khác là trả về 2.
+
+  Sửa dòng import để chuẩn bị cho Bước 7 và 8. models.py:3 (models.py#L3) đổi
+  thành:
+
+  from datetime import date, timedelta
+
+  Chạy thử ClassRoom và người mượn. Thay main.py bằng đoạn thử ClassRoom (đã đưa
+  ở lượt trước), thêm 3 dòng thử Lecturer và TeachingAssistant, rồi chạy python
+  main.py. Nhớ dùng đúng tên lớp và tên hàm như trong code của bạn (hiện tại
+  vẫn là AirconditionerRemote và calculate_maintenance_cost).
+
+  Chạy ổn thì chuyển sang Bước 7 (BorrowItem) theo khung ở lượt trước.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> ok
+
+● Bạn cứ làm theo thứ tự đó: sửa ClassRoom, hoàn thành Lecturer và
+  TeachingAssistant, chạy thử, rồi sang BorrowItem. Viết xong phần nào thì gửi
+  lại, tôi sẽ đọc file và chạy kiểm tra cho bạn.
+
+> check
+
+  Read 2 files (ctrl+o to expand)
+
+● Tôi sẽ chạy một đoạn thử riêng (để trong thư mục tạm, không đụng vào file của
+  bạn) để kiểm tra ClassRoom và người mượn.
+
+  Made 1 scratchpad edit +37, ran 1 shell command (ctrl+o to expand)
+
+● Tôi đã chạy 13 phép thử cho ClassRoom và người mượn (file thử để trong thư mục
+  tạm, không sửa file của bạn). 11 phép cho kết quả đúng, 2 phép sai, và đó vẫn
+  là 2 lỗi tôi báo lần trước.
+
+  Còn sai
+
+  1. models.py:199 (models.py#L199): vẫn gõ sai calculata_maintenance_cost.
+
+  Tổng bảo trì → AttributeError: 'Microphone' object has no attribute
+  'calculata_maintenance_cost'
+
+  Sửa calculata thành calculate. Khi đó kết quả phải là 186000.00.
+
+  2. models.py:201 (models.py#L201): vẫn thiếu điều kiện "dùng trên 5 năm".
+
+  Cần bảo trì → ['PJ01']        (mong đợi ['AC01', 'PJ01'])
+
+  AC01 đưa vào dùng năm 2018, tức đã dùng 8 năm, nhưng không được lọc ra. Thêm
+  vế or i.get_years_in_use() > 5 vào điều kiện.
+
+  Đã đúng
+
+  - find_device, add_device, remove_device: chặn được None và mã trùng; xóa trả
+    về True rồi False đúng như mong đợi.
+  - room.devices: gọi append bị chặn, vì trả về tuple.
+  - Lecturer, TeachingAssistant: giới hạn 3 và 2 đúng; báo ValueError khi mã
+    rỗng.
+  - IBorrower(): báo TypeError, đúng là lớp trừu tượng.
+
+  Chi tiết nhỏ
+
+  DuplicateDeviceException đang có câu thông báo "đã có trong phiếu", trong khi
+  ở đây lỗi nằm ở phòng. Có thể đổi câu thông báo thành "đã tồn tại" cho dùng
+  chung được cả hai chỗ.
+
+  Dòng import (models.py:3 (models.py#L3)) vẫn chưa có timedelta. Thêm vào trước
+  khi làm Bước 7.
+
+  Sửa 2 lỗi trên là xong Bước 5 và 6. Tiếp theo là Bước 7 (BorrowItem) theo
+  khung đã đưa ở lượt trước. Viết xong thì gõ "check", tôi sẽ chạy thử tiếp.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> check
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Tôi đã chạy lại bộ thử. Tổng bảo trì giờ ra đúng 186000.00. Chỉ còn 1 lỗi ở
+  models.py:201 (models.py#L201):
+
+  Cần bảo trì → AttributeError: 'ClassRoom' object has no attribute
+  'get_years_in_use'
+
+  Bạn đã thêm đúng điều kiện, nhưng gọi nhầm trên self:
+
+  ... or self.get_years_in_use() > 5      # self là căn phòng, phòng không có
+  hàm này
+  ... or i.get_years_in_use() > 5         # i là từng thiết bị trong vòng lặp
+
+  Đây cũng là lỗi self giống lần trước với remove_device: trong ClassRoom, self
+  luôn là căn phòng. Muốn lấy thông tin của thiết bị thì dùng biến của vòng lặp
+  (i).
+
+  Sửa xong, cả 13 phép thử đều sẽ cho kết quả đúng, tức là xong Bước 5 và 6.
+
+  Dòng import (models.py:3 (models.py#L3)) vẫn chưa có timedelta, nhớ thêm vào
+  trước khi làm Bước 7 (BorrowItem).
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+> ok
+
+● Sửa xong dòng 201 và thêm timedelta thì bạn làm tiếp Bước 7 (BorrowItem) theo
+  khung tôi đã đưa:
+
+  - __init__ kiểm tra 3 điều kiện rồi mới gán; _returned_date = None.
+  - Property cho các thuộc tính.
+  - is_returned().
+  - mark_returned(): kiểm tra hết rồi mới gán.
+  - get_late_days(), is_late(), calculate_late_fee().
+
+  Viết xong thì gõ "check", tôi sẽ chạy thử cả ClassRoom lẫn BorrowItem.
+
+> timedelta laf gif
+
+● timedelta là kiểu dữ liệu trong module datetime biểu diễn một khoảng thời
+  gian, ví dụ "3 ngày" hay "2 tuần". Nó khác với date, là một ngày cụ thể như
+  01/10/2026.
+
+  from datetime import date, timedelta
+
+  hom_nay = date(2026, 10, 1)
+  ba_ngay = timedelta(days=3)
+
+  print(hom_nay + ba_ngay)    # 2026-10-04: cộng thêm 3 ngày
+  print(hom_nay - ba_ngay)    # 2026-09-28: lùi lại 3 ngày
+
+  Python tự xử lý chuyện sang tháng, sang năm, năm nhuận:
+
+  print(date(2026, 12, 30) + timedelta(days=5))   # 2027-01-04
+
+  Ngược lại, trừ hai date cho nhau sẽ ra một timedelta, và .days cho biết là bao
+  nhiêu ngày:
+
+  khoang = date(2026, 10, 4) - date(2026, 10, 2)
+  print(khoang)          # 2 days, 0:00:00
+  print(khoang.days)     # 2
+
+  Trong bài, bạn cần nó ở hai chỗ:
+
+  ┌───────────────────────────┬───────────────────────────────┬─────────────┐
+  │         Chỗ dùng          │           Phép tính           │   Ý nghĩa   │
+  ├───────────────────────────┼───────────────────────────────┼─────────────┤
+  │                           │                               │ Tính hạn    │
+  │ BorrowingSlip.add_device  │ borrowed_date +               │ trả từ ngày │
+  │ (Bước 8)                  │ timedelta(days=borrow_days)   │  mượn và số │
+  │                           │                               │  ngày mượn  │
+  ├───────────────────────────┼───────────────────────────────┼─────────────┤
+  │                           │                               │ Đếm số ngày │
+  │ BorrowItem.get_late_days  │ (end - self._due_date).days   │  trễ (trừ   │
+  │ (Bước 7)                  │                               │ hai ngày,   │
+  │                           │                               │ lấy .days)  │
+  └───────────────────────────┴───────────────────────────────┴─────────────┘
+
+  Bước 7 thực ra chưa cần import timedelta, vì phép trừ hai date tự cho ra
+  timedelta. Nhưng Bước 8 cần, nên thêm luôn vào dòng import từ bây giờ.
+
+> dongf 201 tooi phai sua nhu nao
+
+● Chỉ đổi self thành i ở vế sau. Dòng 201 sửa thành:
+
+          return [i for i in self._devices if i.status ==
+  DeviceStatus.UNDER_MAINTENANCE or i.get_years_in_use() > 5]
+
+  Câu này đọc là: "lấy từng thiết bị i trong phòng, giữ lại nếu i đang bảo trì
+  hoặc i đã dùng trên 5 năm". Cả hai vế đều hỏi về i (thiết bị), không phải self
+  (căn phòng).
+
+> toi sua roi ma
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bạn sửa đúng rồi, dòng 201 giờ đã đúng. Tôi chạy lại bộ thử và nó ra ['MIC01',
+  'AC01', 'PJ01'], khác với kết quả ['AC01', 'PJ01'] tôi ghi trong phép thử.
+  Chỗ sai là ở phép thử của tôi, không phải ở code của bạn. Micro đưa vào dùng
+  năm 2020, đến nay là 6 năm, tức là trên 5 năm, nên được lọc ra là đúng.
+
+  ┌─────────┬──────────────┬───────────┬───────────────────┬───────────────┐
+  │ Thiết   │ Năm đưa vào  │  Số năm   │    Trạng thái     │ Cần bảo trì?  │
+  │   bị    │     dùng     │   dùng    │                   │               │
+  ├─────────┼──────────────┼───────────┼───────────────────┼───────────────┤
+  │ MIC01   │ 2020         │ 6         │ AVAILABLE         │ Có (trên 5    │
+  │         │              │           │                   │ năm)          │
+  ├─────────┼──────────────┼───────────┼───────────────────┼───────────────┤
+  │ AC01    │ 2018         │ 8         │ AVAILABLE         │ Có (trên 5    │
+  │         │              │           │                   │ năm)          │
+  ├─────────┼──────────────┼───────────┼───────────────────┼───────────────┤
+  │ PJ01    │ 2022         │ 4         │ UNDER_MAINTENANCE │ Có (đang bảo  │
+  │         │              │           │                   │ trì)          │
+  └─────────┴──────────────┴───────────┴───────────────────┴───────────────┘
+
+  Như vậy cả 13 phép thử đều đúng, xong Bước 5 và 6.
+
+  Dòng import (models.py:3 (models.py#L3)) vẫn là from datetime import date.
+  Thêm timedelta vào rồi làm tiếp Bước 7 (BorrowItem).
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> ok buowsc 7 ddi
+
+● Bước 7 là lớp BorrowItem (chi tiết phiếu mượn). Viết ngay dưới
+  TeachingAssistant trong models.py.
+
+  1. __init__: kiểm tra trước, gán sau
+
+  class BorrowItem:
+      def __init__(self, device, borrowed_date, due_date, from_period,
+  to_period):
+          if device is None:
+              raise ValueError("Thiết bị không được để trống")
+          if due_date < borrowed_date:
+              raise ValueError("Hạn trả phải sau hoặc bằng ngày mượn")
+          if from_period < 1 or from_period > to_period:
+              raise ValueError("Tiết mượn không hợp lệ")
+          self._device = device
+          self._borrowed_date = borrowed_date
+          self._due_date = due_date
+          self._from_period = from_period
+          self._to_period = to_period
+          self._returned_date = None          # ban đầu chưa trả
+
+  Ba câu if này tương ứng với 3 quy tắc trong mục 6 của đề: Device không null;
+  DueDate sau hoặc bằng BorrowedDate; tiết từ không lớn hơn tiết đến.
+
+  2. Property
+
+  Bạn tự viết 6 property theo đúng mẫu đã làm ở Device: device, borrowed_date,
+  due_date, from_period, to_period, returned_date. Mỗi cái chỉ có getter, trả về
+  self._....
+
+  3. Các phương thức
+
+      def is_returned(self):
+          return self._returned_date is not None
+
+      def mark_returned(self, returned_date):
+          if self.is_returned():
+              raise DeviceAlreadyReturnedException(self._device.device_id,
+  self._returned_date)
+          if returned_date < self._borrowed_date:
+              raise InvalidReturnDateException(self._borrowed_date,
+  returned_date)
+          self._returned_date = returned_date   # chỉ gán khi đã qua hết kiểm
+  tra
+
+      def get_late_days(self, as_of):
+          end = self._returned_date if self._returned_date is not None else
+  as_of
+          return max(0, (end - self._due_date).days)
+
+  Hai phương thức cuối bạn tự viết, mỗi cái chỉ một dòng:
+  - is_late(self, as_of): trả về True nếu get_late_days(as_of) lớn hơn 0.
+  - calculate_late_fee(self, as_of): trả về get_late_days(as_of) nhân với
+    LATE_FEE_PER_DAY.
+
+  Giải thích get_late_days:
+  - Mốc so sánh (end): nếu đã trả thì lấy ngày trả, nếu chưa trả thì lấy ngày
+    as_of mà người gọi truyền vào (ví dụ hôm nay).
+  - (end - self._due_date).days: số ngày từ hạn trả đến mốc. Kết quả âm nghĩa là
+    trả sớm.
+  - max(0, ...): trả sớm hay đúng hạn đều tính là 0 ngày trễ, không ra số âm.
+
+  4. Chạy thử
+
+  Thêm tạm vào cuối main.py, nhớ thêm from datetime import date ở đầu file:
+
+  mic = Microphone("MIC01", "Micro", 2020, Decimal("500000"), True)
+  item = BorrowItem(mic, date(2026, 10, 1), date(2026, 10, 2), 1, 3)
+
+  print(item.is_returned())                          # False
+  print(item.is_late(date(2026, 10, 2)))             # False: đúng hạn
+  print(item.get_late_days(date(2026, 10, 5)))       # 3: chưa trả, tính tới
+  10/5
+
+  item.mark_returned(date(2026, 10, 4))
+  print(item.is_returned(), item.returned_date)      # True 2026-10-04
+  print(item.get_late_days(date(2026, 10, 30)))      # 2: đã trả nên tính theo
+  ngày trả
+  print(item.calculate_late_fee(date(2026, 10, 30))) # 20000
+
+  try:
+      item.mark_returned(date(2026, 10, 5))
+  except DeviceAlreadyReturnedException as e:
+      print("Lỗi:", e)
+
+  item2 = BorrowItem(mic, date(2026, 10, 1), date(2026, 10, 2), 1, 3)
+  try:
+      item2.mark_returned(date(2026, 9, 30))
+  except InvalidReturnDateException as e:
+      print("Lỗi:", e)
+  print(item2.is_returned())                         # False: lỗi xong vẫn chưa
+  bị đánh dấu trả
+
+  Dòng cuối là dòng quan trọng nhất: nó chứng minh rằng khi mark_returned thất
+  bại, dữ liệu không bị thay đổi. Đây chính là yêu cầu "giữ nhất quán" của đề.
+
+  Viết xong thì gõ "check", tôi sẽ chạy thử.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> check
+
+  Read 2 files (ctrl+o to expand)
+
+● Code trông ổn. Tôi chạy thử bằng một file riêng trong thư mục tạm.
+
+  Made 1 scratchpad edit +35, searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Bước 7 xong: tôi chạy 16 phép thử cho BorrowItem và cả 16 đều đúng, không có
+  lỗi nào. Dòng import đã có timedelta.
+
+  - Tính ngày trễ: chưa trả thì tính tới as_of (3 ngày), đã trả thì tính theo
+    ngày trả (2 ngày), trả sớm thì ra 0.
+  - Phí trễ: ra 20000.
+  - Trả hai lần báo DeviceAlreadyReturnedException, và ngày trả cũ không bị ghi
+    đè.
+  - Ngày trả trước ngày mượn báo InvalidReturnDateException, và item vẫn ở trạng
+    thái chưa trả. Đây là phần quan trọng nhất về tính nhất quán.
+  - Constructor chặn được device None, hạn trả trước ngày mượn, tiết sai.
+  - returned_date không gán được từ bên ngoài.
+
+  Bước 8: BorrowingSlip
+
+  Đây là phần quan trọng nhất của bài. Viết dưới BorrowItem.
+
+  8.1. __init__ và property
+
+  class BorrowingSlip:
+      def __init__(self, slip_id, borrower, teaching_room, borrowed_date):
+          # slip_id rỗng → ValueError
+          # borrower là None → ValueError
+          # teaching_room rỗng → ValueError
+          # gán _slip_id, _borrower, _teaching_room, _borrowed_date
+          self._items = []
+
+  Property: slip_id, borrower, teaching_room, borrowed_date, và items (trả về
+  tuple(self._items), giống ClassRoom.devices).
+
+  8.2. _find_item: hàm phụ để tìm item
+
+      def _find_item(self, device_id):
+          for item in self._items:
+              if item.device.device_id == device_id:
+                  return item
+          return None
+
+  item.device.device_id đọc từ item lấy ra thiết bị, rồi từ thiết bị lấy ra mã.
+  Cả hai đều đi qua property.
+
+  8.3. _validate_borrowing: kiểm tra, không thay đổi gì
+
+      def _validate_borrowing(self, device, borrow_days, from_period,
+  to_period):
+          if device is None:
+              raise ValueError("Thiết bị không được để trống")
+          if borrow_days <= 0 or borrow_days > device.max_borrow_days:
+              raise InvalidBorrowPeriodException(device.device_id, borrow_days,
+  device.max_borrow_days)
+          periods = to_period - from_period + 1
+          if periods > device.max_periods:
+              raise InvalidBorrowPeriodException(device.device_id, periods,
+  device.max_periods)
+          # TODO 1: thiết bị đã có trong phiếu → DuplicateDeviceException
+          # TODO 2: len(self._items) >= borrower.get_maximum_devices() →
+  BorrowLimitExceededException
+          # TODO 3: device.status != AVAILABLE → DeviceUnavailableException
+
+  Ba mục TODO bạn tự viết, mỗi mục là một if cộng một raise. Gợi ý: TODO 1 dùng
+  _find_item.
+
+  Thứ tự kiểm tra theo mục 9.1 của đề: null, số ngày, trùng, giới hạn, trạng
+  thái.
+
+  8.4. add_device: kiểm tra trước, thay đổi sau
+
+      def add_device(self, device, borrow_days, from_period=1, to_period=1):
+          self._validate_borrowing(device, borrow_days, from_period, to_period)
+          due_date = self._borrowed_date + timedelta(days=borrow_days)
+          item = BorrowItem(device, self._borrowed_date, due_date, from_period,
+  to_period)
+          device.mark_as_borrowed()
+          self._items.append(item)
+
+  Thứ tự 4 dòng này không được đảo. Nếu _validate_borrowing hoặc BorrowItem(...)
+  báo lỗi, chương trình dừng ngay trước khi đổi trạng thái thiết bị hay thêm
+  item, nên dữ liệu giữ nguyên. Đây chính là "hướng an toàn hơn" ở mục 9.2 của
+  đề.
+
+  8.5. return_device: bạn tự viết theo 7 bước của mục 9.3
+
+      def return_device(self, device_id, returned_date):
+          # 1. device_id rỗng → ValueError
+          # 2. item = self._find_item(device_id)
+          # 3. item là None → raise DeviceNotInSlipException(device_id,
+  self._slip_id)
+          # 4-6. item.mark_returned(returned_date)   ← đã tự kiểm tra trả 2 lần
+  và ngày trả
+          # 7. item.device.mark_as_available()
+          # return item.calculate_late_fee(returned_date)
+
+  Lưu ý thứ tự: phải gọi mark_returned trước mark_as_available. Nếu
+  mark_returned báo lỗi (trả 2 lần, ngày sai), thiết bị sẽ không bị đổi trạng
+  thái nhầm.
+
+  8.6. Ba phương thức thống kê
+
+  Bạn tự viết, mỗi cái một dòng:
+  - calculate_total_late_fee(self, as_of): sum((...) for item in self._items),
+    Decimal("0")).
+  - get_unreturned_items(self): list các item chưa trả.
+  - get_late_items(self, as_of): list các item is_late(as_of).
+
+  Viết xong thì gõ "check". Tôi sẽ chạy thử đủ 7 tình huống lỗi của đề, kèm kiểm
+  tra rằng sau mỗi lỗi, trạng thái thiết bị và số item không bị thay đổi.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> tại sao cần hàm phụ tìm item
+
+● Vì việc "tìm item theo mã thiết bị" được dùng ở hai chỗ trong BorrowingSlip:
+
+  ┌─────────────────────┬────────────────────────────────────────────────────┐
+  │      Chỗ dùng       │                      Mục đích                      │
+  ├─────────────────────┼────────────────────────────────────────────────────┤
+  │ _validate_borrowing │ Kiểm tra thiết bị đã có trong phiếu chưa, để báo   │
+  │                     │ DuplicateDeviceException                           │
+  ├─────────────────────┼────────────────────────────────────────────────────┤
+  │ return_device       │ Tìm item cần trả; không thấy thì báo               │
+  │                     │ DeviceNotInSlipException                           │
+  └─────────────────────┴────────────────────────────────────────────────────┘
+
+  Nếu không có hàm phụ, bạn phải viết vòng lặp tìm kiếm hai lần:
+
+  def _validate_borrowing(self, device, ...):
+      for item in self._items:
+          if item.device.device_id == device.device_id:
+              raise DuplicateDeviceException(device.device_id)
+      ...
+
+  def return_device(self, device_id, returned_date):
+      found = None
+      for item in self._items:
+          if item.device.device_id == device_id:
+              found = item
+              break
+      ...
+
+  Có hàm phụ thì mỗi chỗ chỉ còn một dòng:
+
+  if self._find_item(device.device_id) is not None:   # trong
+  _validate_borrowing
+  item = self._find_item(device_id)                    # trong return_device
+
+  Lợi ích:
+  1. Không lặp code. Viết logic tìm kiếm một lần, dùng nhiều lần.
+  2. Sửa một chỗ. Nếu sau này cách tìm thay đổi (ví dụ so sánh không phân biệt
+     hoa thường), chỉ sửa trong _find_item.
+  3. Dễ đọc. Tên hàm nói lên việc nó làm, người đọc không phải đọc vòng lặp mới
+     hiểu.
+
+  Bạn đã làm y hệt điều này ở ClassRoom: find_device được dùng lại trong
+  add_device (kiểm tra trùng) và remove_device (tìm để xóa).
+
+  Vì sao có dấu _ ở đầu tên? Đề không yêu cầu bên ngoài phải tìm được item, nên
+  đây là hàm nội bộ, chỉ dùng bên trong BorrowingSlip. Dấu _ báo cho người đọc
+  biết điều đó, giống _validate_borrowing. Còn ClassRoom.find_device không có _,
+  vì đề yêu cầu nó là phương thức công khai.
+
+> tại sao tên phải đặt khác đi là thêm _ ở trước
+
+● Không bắt buộc. Đặt find_item (không có _) thì code vẫn chạy y hệt. Dấu _ chỉ
+  là quy ước để báo cho người đọc biết "hàm này dùng nội bộ, bên ngoài đừng
+  gọi". Nó giống ý nghĩa của _ ở thuộc tính (_device_id) mà bạn đã học.
+
+  Lý do nên thêm _ trong bài này:
+
+  1. Đề chỉ định nghĩa phần công khai. Mục 7 của đề liệt kê các phương thức
+     public của BorrowingSlip: AddDevice, ReturnDevice, CalculateTotalLateFee.
+     Hàm tìm item là thứ bạn tự thêm để phục vụ bên trong, nên đánh dấu là nội
+     bộ.
+  2. Khớp với sơ đồ UML. Trong UML, ký hiệu - nghĩa là private, + nghĩa là
+     public. Sơ đồ của bạn đã ghi - _validate_borrowing(...). Thêm _find_item
+     thì ghi - _find_item(device_id).
+  3. Thu hẹp phần bên ngoài phải biết. Người dùng BorrowingSlip (ví dụ code
+     trong main) chỉ cần biết add_device, return_device... Càng ít hàm công
+     khai, càng ít thứ bị dùng sai, và bạn càng thoải mái sửa hàm nội bộ sau này
+     mà không sợ làm hỏng code bên ngoài.
+
+  So sánh với ClassRoom.find_device: đề liệt kê nó trong danh sách phương thức
+  tối thiểu (Device? FindDevice(string deviceId)), nên nó phải là public, không
+  có _.
+
+  Quy tắc chung:
+  - Đề yêu cầu, hoặc bên ngoài cần gọi: tên thường.
+  - Chỉ để hỗ trợ bên trong lớp: thêm _.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> nghĩa là phải kiểm tra lỗi trước sau khi ok hết rồi mới đến thay đổi tránh
+  việc thay đổi rồi mà kp ra lỗi
+
+● Đúng. Mọi phương thức có thay đổi dữ liệu đều làm theo hai pha:
+
+  1. Kiểm tra: chỉ đọc dữ liệu, chưa sửa gì. Gặp lỗi thì raise, dừng ngay.
+  2. Thay đổi: chỉ chạy khi mọi kiểm tra đã qua.
+
+  Lý do là raise dừng hàm ngay tại chỗ. Những gì đã sửa trước đó không tự hoàn
+  tác. Ví dụ cách làm sai mà đề đưa ra ở mục 9.2:
+
+  def add_device(self, device, borrow_days):
+      device.mark_as_borrowed()                       # đã đổi sang BORROWED
+      if len(self._items) >= self._borrower.get_maximum_devices():
+          raise BorrowLimitExceededException(...)     # dừng ở đây
+      self._items.append(...)                         # không bao giờ chạy tới
+
+  Trợ giảng mượn thiết bị thứ 3 sẽ bị từ chối, nhưng thiết bị đã bị chuyển thành
+  BORROWED, dù không nằm trong phiếu nào. Không ai mượn được nó nữa, và cũng
+  không ai trả được, vì nó không thuộc phiếu nào. Dữ liệu đã bị hỏng.
+
+  Làm đúng thứ tự thì lỗi xảy ra khi chưa có gì bị sửa, nên mọi thứ giữ nguyên
+  như trước khi gọi hàm. Đó chính là "giữ nhất quán" mà đề yêu cầu.
+
+  Bạn đã áp dụng nguyên tắc này ở các bước trước:
+  - Device.__init__: kiểm tra hết rồi mới gán.
+  - ClassRoom.add_device: kiểm tra None và trùng mã rồi mới append.
+  - BorrowItem.mark_returned: kiểm tra trả hai lần và ngày trả rồi mới gán
+    _returned_date.
+
+  Ở Bước 8, nguyên tắc này quan trọng nhất, vì một thao tác sửa hai đối tượng
+  cùng lúc (thiết bị và phiếu). Chỉ cần sửa một nửa rồi gặp lỗi là hai bên lệch
+  nhau ngay.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> check
+
+  Read 1 file (ctrl+o to expand)
+
+● Phần thống kê (8.6) chưa có nên tôi chỉ kiểm tra add_device và return_device
+  trước, chạy đủ 7 tình huống lỗi của đề và kiểm tra tính nhất quán sau mỗi lỗi.
+
+  Made 1 scratchpad edit +74, ran 1 shell command (ctrl+o to expand)
+
+● Phần add_device đã đúng tinh thần "kiểm tra trước, thay đổi sau": ở các tình
+  huống lỗi 1, 3, 4, ngoại lệ được báo đúng loại, còn số item và trạng thái
+  thiết bị không bị thay đổi. Nhưng có 2 lỗi làm hỏng toàn bộ phần trả thiết bị
+  và tình huống 2.
+
+  Lỗi 1: tên hàm không khớp, làm toàn bộ return_device hỏng
+
+  AttributeError: 'BorrowingSlip' object has no attribute '_find_item'. Did you
+  mean: 'find_item'?
+
+  Bạn định nghĩa find_item ở models.py:321 (models.py#L321) (không có _), nhưng
+  models.py:351 (models.py#L351) lại gọi self._find_item(...). Lỗi này làm hỏng
+  luồng trả thiết bị và các tình huống 5, 6, 7. Chọn một tên rồi dùng thống nhất
+  ở cả hai chỗ. Tôi khuyên đổi dòng 321 thành _find_item, vì đây là hàm nội bộ
+  như đã bàn.
+
+  Lỗi 2: models.py:339 (models.py#L339): người mượn không có thuộc tính name
+
+  2. trợ giảng mượn thứ 3 -> AttributeError: 'TeachingAssistant' object has no
+  attribute 'name'
+
+  IBorrower chỉ có borrower_id và full_name. Hơn nữa,
+  BorrowLimitExceededException cần mã người mượn:
+
+  raise BorrowLimitExceededException(self._borrower.borrower_id, max_devices)
+
+  Nên chỉnh
+
+  models.py:334-336 (models.py#L334-L336): đã có hàm tìm item nhưng không dùng
+  lại. Thay vòng lặp bằng:
+
+  if self._find_item(device.device_id) is not None:
+      raise DuplicateDeviceException(device.device_id)
+
+  Đây đúng là lý do hàm phụ tồn tại: viết một lần, dùng ở hai chỗ.
+
+  models.py:295 (models.py#L295), models.py:299 (models.py#L299): chưa chặn
+  chuỗi toàn khoảng trắng. if not slip_id cho lọt "   ". Dùng if not slip_id or
+  not slip_id.strip(): cho giống các lớp khác.
+
+  Còn thiếu: 8.6, ba phương thức thống kê
+
+  calculate_total_late_fee(as_of), get_unreturned_items(), get_late_items(as_of)
+  chưa có. Thiếu chúng thì không làm được bước 7 của luồng thành công ("hiển
+  thị các phiếu trả muộn, chưa trả").
+
+  Sửa 2 lỗi và thêm 3 phương thức xong thì gõ "check", tôi sẽ chạy lại cả luồng
+  thành công lẫn 7 tình huống ngoại lệ.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> ok chua
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Chưa ổn. Lần này bạn sửa lỗi cũ nhưng lại tạo ra lỗi ngược lại:
+
+  AttributeError: 'BorrowingSlip' object has no attribute '_validate_borrowing'.
+  Did you mean: 'validate_borrowing'?
+
+  Bạn đã bỏ dấu _ ở tên hàm models.py:326 (models.py#L326) (validate_borrowing),
+  nhưng chỗ gọi ở models.py:342 (models.py#L342) vẫn là
+  self._validate_borrowing(...). Kết quả là add_device không chạy được, nên
+  không mượn được thiết bị nào, và mọi phép thử phía sau đều hỏng theo.
+
+  Quy tắc: tên lúc định nghĩa (def ...) và tên lúc gọi (self....) phải giống hệt
+  nhau, kể cả dấu _.
+
+  Cách sửa gọn nhất là thêm lại _ cho cả hai hàm nội bộ, rồi sửa mọi chỗ gọi cho
+  khớp:
+
+  ┌────────────────────┬───────────────────────────┬────────────────────────┐
+  │        Dòng        │         Hiện tại          │       Sửa thành        │
+  ├────────────────────┼───────────────────────────┼────────────────────────┤
+  │ 321                │ def find_item(            │ def _find_item(        │
+  │ (models.py#L321)   │                           │                        │
+  ├────────────────────┼───────────────────────────┼────────────────────────┤
+  │ 326                │ def validate_borrowing(   │ def                    │
+  │ (models.py#L326)   │                           │ _validate_borrowing(   │
+  ├────────────────────┼───────────────────────────┼────────────────────────┤
+  │ 334                │ self.find_item(           │ self._find_item(       │
+  │ (models.py#L334)   │                           │                        │
+  ├────────────────────┼───────────────────────────┼────────────────────────┤
+  │ 342                │ self._validate_borrowing( │ giữ nguyên             │
+  │ (models.py#L342)   │                           │                        │
+  ├────────────────────┼───────────────────────────┼────────────────────────┤
+  │ 350                │ self.find_item(           │ self._find_item(       │
+  │ (models.py#L350)   │                           │                        │
+  └────────────────────┴───────────────────────────┴────────────────────────┘
+
+  Phần đã sửa đúng:
+  - Lỗi .name: dòng 338 đã dùng borrower_id.
+  - Kiểm tra trùng: đã dùng lại hàm tìm item, không viết vòng lặp nữa.
+  - slip_id và teaching_room: đã chặn được chuỗi toàn khoảng trắng.
+
+  Ba phương thức thống kê ở 8.6 (calculate_total_late_fee, get_unreturned_items,
+  get_late_items) vẫn chưa có.
+
+  Sửa tên xong và thêm 3 phương thức thì gõ "check" lại.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> cho tôi 3 phương thức thống ke ekia
+
+● Dán 3 phương thức này vào cuối lớp BorrowingSlip, ngay dưới return_device,
+  thụt lề ngang hàng với def return_device:
+
+      def calculate_total_late_fee(self, as_of):
+          return sum((i.calculate_late_fee(as_of) for i in self._items),
+  Decimal("0"))
+
+      def get_unreturned_items(self):
+          return [i for i in self._items if not i.is_returned()]
+
+      def get_late_items(self, as_of):
+          return [i for i in self._items if i.is_late(as_of)]
+
+  Cả ba đều chỉ đọc dữ liệu, không thay đổi gì, và đều tận dụng các hàm đã viết
+  sẵn ở BorrowItem:
+
+  Phương thức: calculate_total_late_fee(as_of)
+  Làm gì: Cộng phí trễ của mọi item
+  Dựa vào: item.calculate_late_fee(as_of)
+  ────────────────────────────────────────
+  Phương thức: get_unreturned_items()
+  Làm gì: Lọc item chưa trả
+  Dựa vào: item.is_returned()
+  ────────────────────────────────────────
+  Phương thức: get_late_items(as_of)
+  Làm gì: Lọc item bị trễ (đã trả trễ, hoặc chưa trả mà quá hạn tính tới as_of)
+  Dựa vào: item.is_late(as_of)
+
+  Tham số as_of là "tính tới ngày nào". Với item chưa trả, phải có mốc thời gian
+  mới biết nó đã trễ chưa. Ở main, bạn thường truyền ngày đang xét, ví dụ
+  date(2026, 10, 5) hoặc date.today().
+
+  Decimal("0") trong sum giúp kết quả luôn là Decimal, kể cả khi phiếu chưa có
+  item nào.
+
+  Nhớ sửa luôn phần tên hàm _find_item và _validate_borrowing như bảng ở lượt
+  trước, rồi gõ "check".
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\models.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+> bước tiếp theo đi
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Trước khi đi tiếp, tôi đã chạy lại bộ thử: Bước 8 đã đúng hoàn toàn.
+
+  - Luồng thành công: mượn 2 thiết bị (trạng thái chuyển BORROWED); trả máy
+    chiếu đúng hạn ra phí 0, trả micro trễ 2 ngày ra phí 20000, cả hai về lại
+    AVAILABLE.
+  - 7 tình huống ngoại lệ: đều báo đúng loại ngoại lệ, và sau mỗi lỗi số item
+    cùng trạng thái thiết bị không thay đổi.
+  - Ba phương thức thống kê: đã có đủ.
+
+  Phần models.py coi như xong. Còn lại là main.py.
+
+  Bước 9: luồng thành công (mục 11.1)
+
+  Thay toàn bộ main.py bằng khung sau. Tên lớp và tên hàm đang theo đúng code
+  hiện tại của bạn (AirconditionerRemote, mark_as_undermaintenance...).
+
+  from datetime import date
+  from models import *
+
+
+  def print_slip(slip, as_of):
+      print(f"Phiếu {slip.slip_id} | {slip.borrower.full_name} | phòng
+  {slip.teaching_room}")
+      for item in slip.items:
+          trang_thai = f"đã trả {item.returned_date}" if item.is_returned() else
+  "chưa trả"
+          print(f"  - {item.device.name}: hạn {item.due_date}, {trang_thai}, "
+                f"trễ {item.get_late_days(as_of)} ngày, phí
+  {item.calculate_late_fee(as_of)}")
+
+
+  def success_flow():
+      print("=== 11.1 LUỒNG THÀNH CÔNG ===")
+      # 1. Tạo giảng viên
+      gv = Lecturer("GV01", "Nguyễn Văn A")
+
+      # 2. Tạo 3 thiết bị và cho vào phòng
+      pj = ProjectorRemote("PJ01", "Điều khiển máy chiếu", 2022,
+  Decimal("200000"), "Epson")
+      ac = AirconditionerRemote("AC01", "Điều khiển điều hòa", 2018,
+  Decimal("300000"), "Daikin")
+      mic = Microphone("MIC01", "Micro không dây", 2020, Decimal("500000"),
+  True)
+      room = ClassRoom("B204", "Phòng B204", 40)
+      for d in (pj, ac, mic):
+          room.add_device(d)
+
+      # 3. Tạo phiếu mượn
+      slip = BorrowingSlip("PM01", gv, "B204", date(2026, 10, 1))
+
+      # 4. Thêm máy chiếu và micro
+      slip.add_device(pj, 1)
+      slip.add_device(mic, 1)
+
+      # 5. Trả máy chiếu đúng hạn
+      fee = slip.return_device("PJ01", date(2026, 10, 2))
+      print("Trả máy chiếu, phí:", fee)
+
+      # 6. Trả micro muộn 2 ngày
+      # TODO: tự viết, giống bước 5 (hạn 10/2, trễ 2 ngày là ngày nào?)
+
+      # 7. Hiển thị
+      as_of = date(2026, 10, 5)
+      print_slip(slip, as_of)
+      # TODO: in số item trả muộn  (slip.get_late_items(as_of))
+      # TODO: in số item chưa trả  (slip.get_unreturned_items())
+      # TODO: in tổng phí trễ      (slip.calculate_total_late_fee(as_of))
+      # TODO: in chi phí bảo trì của phòng và các thiết bị cần bảo trì
+
+  Bước 10: luồng ngoại lệ (mục 11.2)
+
+  Mỗi tình huống là một hàm riêng, có try / except / finally riêng. Mẫu cho tình
+  huống 1:
+
+  def case_1():
+      print("\n--- 1. Mượn điều hòa đang bảo trì ---")
+      gv = Lecturer("GV01", "Nguyễn Văn A")
+      ac = AirconditionerRemote("AC01", "Điều khiển điều hòa", 2018,
+  Decimal("300000"), "Daikin")
+      ac.mark_as_undermaintenance()
+      slip = BorrowingSlip("PM02", gv, "B204", date(2026, 10, 1))
+      try:
+          slip.add_device(ac, 1)
+          print("Không có lỗi (SAI)")
+      except DeviceUnavailableException as e:
+          print("Bắt được:", e)
+      except BorrowingException as e:
+          print("Lỗi nghiệp vụ khác:", e)
+      finally:
+          print(f"Sau thao tác: {ac.device_id} = {ac.status.name}, số item =
+  {len(slip.items)}")
+
+  Ý nghĩa từng phần:
+  - try: chạy thao tác có thể lỗi.
+  - except lỗi cụ thể: bắt đúng loại mong đợi.
+  - except BorrowingException: lưới an toàn cho các lỗi nghiệp vụ khác. Phải đặt
+    sau except cụ thể; đặt trước thì nó sẽ bắt hết, và except cụ thể không bao
+    giờ chạy tới.
+  - finally: luôn chạy dù có lỗi hay không. Dùng để in trạng thái, chứng minh dữ
+    liệu không bị hỏng.
+
+  Viết tiếp case_2() đến case_7() theo mẫu này:
+
+  Hàm: case_2
+  Chuẩn bị: Trợ giảng, phiếu đã có 2 thiết bị
+  Thao tác gây lỗi: add_device thiết bị thứ 3
+  except: BorrowLimitExceededException
+  ────────────────────────────────────────
+  Hàm: case_3
+  Chuẩn bị: Phiếu đã có micro
+  Thao tác gây lỗi: add_device(mic, 1) lần nữa
+  except: DuplicateDeviceException
+  ────────────────────────────────────────
+  Hàm: case_4
+  Chuẩn bị: Phiếu trống
+  Thao tác gây lỗi: add_device(mic, 3)
+  except: InvalidBorrowPeriodException
+  ────────────────────────────────────────
+  Hàm: case_5
+  Chuẩn bị: Phiếu chỉ có micro
+  Thao tác gây lỗi: return_device("PJ01", ...)
+  except: DeviceNotInSlipException
+  ────────────────────────────────────────
+  Hàm: case_6
+  Chuẩn bị: Micro đã trả
+  Thao tác gây lỗi: return_device("MIC01", ...) lần nữa
+  except: DeviceAlreadyReturnedException
+  ────────────────────────────────────────
+  Hàm: case_7
+  Chuẩn bị: Phiếu mượn ngày 10/1 có micro
+  Thao tác gây lỗi: return_device("MIC01", date(2026, 9, 30))
+  except: InvalidReturnDateException
+
+  Cuối file:
+
+  if __name__ == "__main__":
+      success_flow()
+      print("\n=== 11.2 LUỒNG NGOẠI LỆ ===")
+      for case in (case_1, case_2, case_3, case_4, case_5, case_6, case_7):
+          case()
+
+  Mỗi tình huống tự tạo đối tượng mới, nên các tình huống không ảnh hưởng nhau.
+  Vì có try/except trong từng hàm, một tình huống lỗi cũng không làm dừng các
+  tình huống sau.
+
+  Viết xong thì gõ "check", tôi sẽ chạy python main.py và đối chiếu với đề. Sau
+  đó còn bước cuối: đổi các tên còn lệch với UML
+  (calculate_annual_maintenance_cost, AirConditionerRemote,
+  mark_as_under_maintenance) và rà lại checklist.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\main.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> check
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● python main.py chạy hết, không lỗi, và kết quả khớp với đề:
+
+  - Luồng thành công: trả máy chiếu đúng hạn ra phí 0, trả micro trễ 2 ngày ra
+    phí 20000. Thống kê đúng: 1 item trả muộn, 0 item chưa trả, tổng phí 20000,
+    chi phí bảo trì phòng 186000.00.
+  - 7 tình huống ngoại lệ: đều báo đúng câu thông báo.
+
+  Còn một thiếu sót sẽ bị trừ điểm, và vài điểm nên làm cho chặt hơn.
+
+  Thiếu finally và except cụ thể
+
+  Mục 10 của đề tên là "Sử dụng try, catch và finally", nhưng main.py chưa có
+  finally nào. Ngoài ra, cả 7 tình huống đều chỉ bắt BorrowingException chung.
+  Kết quả in ra đúng, nhưng người chấm không thấy bạn phân biệt được từng loại
+  lỗi, và cũng không thấy bằng chứng rằng dữ liệu vẫn nhất quán sau khi lỗi.
+
+  Sửa từng tình huống theo mẫu, ví dụ tình huống 3:
+
+      # 3. Thêm một micro hai lần
+      mic = Microphone("MIC01", "Micro", 2020, Decimal("500000"), True)
+      slip = BorrowingSlip("PM04", gv, "B204", day)
+      slip.add_device(mic, 1)
+      try:
+          slip.add_device(mic, 1)
+      except DuplicateDeviceException as e:
+          print("3.", e)
+      except BorrowingException as e:
+          print("3. Lỗi khác:", e)
+      finally:
+          print(f"   Sau thao tác: {mic.device_id} = {mic.status.name}, số item
+  = {len(slip.items)}")
+
+  Có hai thay đổi:
+  1. Đưa phần chuẩn bị ra ngoài try. Trong try chỉ để đúng thao tác gây lỗi. Như
+     vậy biến mic và slip chắc chắn tồn tại khi finally chạy, và nếu phần chuẩn
+     bị lỗi, bạn sẽ thấy ngay chứ không bị nuốt mất.
+  2. Thêm except cụ thể và finally. finally in trạng thái thiết bị và số item,
+     để chứng minh dữ liệu không bị thay đổi sai.
+
+  Bảng except cụ thể cho từng tình huống nằm ở lượt trước (tình huống 1 là
+  DeviceUnavailableException, tình huống 2 là BorrowLimitExceededException,
+  v.v.).
+
+  Nên chỉnh
+
+  Tình huống 5 (main.py:82 (main.py#L82)): phiếu đang trống và chưa có máy chiếu
+  nào được tạo. Để sát đề ("trả một điều khiển máy chiếu không thuộc phiếu")
+  hơn, cho phiếu có một micro, tạo máy chiếu thật, rồi trả máy chiếu:
+
+  mic = Microphone("MIC05", "Micro", 2020, Decimal("500000"), True)
+  pj = ProjectorRemote("PJ01", "Điều khiển máy chiếu", 2022, Decimal("200000"),
+  "Epson")
+  slip = BorrowingSlip("PM06", gv, "B204", day)
+  slip.add_device(mic, 1)
+  try:
+      slip.return_device(pj.device_id, day)
+  ...
+
+  Luồng thành công: mọi thiết bị đều đã trả, nên dòng "Số item chưa trả: 0"
+  không minh họa được gì. Cách đơn giản: mượn thêm điều hòa (slip.add_device(ac,
+  1)) và không trả. Khi đó danh sách chưa trả sẽ có điều hòa, và nó cũng tính
+  vào danh sách trả muộn tính tới as_of.
+
+  Câu thông báo (models.py:20 (models.py#L20)): thiếu dấu cách, đang in ra không
+  sẵn sàng(trạng thái:. Thêm một dấu cách vào cuối chuỗi ở dòng 20.
+
+  Bước cuối: đổi tên cho khớp đề và UML
+
+  Các tên này vẫn còn lệch:
+
+  Hiện tại: calculate_maintenance_cost
+  Nên đổi thành: calculate_annual_maintenance_cost
+  Số chỗ cần sửa: 4 chỗ trong Device và 3 lớp con, 1 chỗ trong ClassRoom
+  ────────────────────────────────────────
+  Hiện tại: AirconditionerRemote
+  Nên đổi thành: AirConditionerRemote
+  Số chỗ cần sửa: Định nghĩa lớp và mọi chỗ dùng trong main.py
+  ────────────────────────────────────────
+  Hiện tại: mark_as_undermaintenance
+  Nên đổi thành: mark_as_under_maintenance
+  Số chỗ cần sửa: Định nghĩa và mọi chỗ gọi
+
+  Trong VS Code, đặt con trỏ vào tên rồi bấm F2 để đổi tên ở mọi chỗ cùng lúc,
+  không sợ sót.
+
+  Làm xong thì gõ "check" lần cuối. Tôi sẽ chạy lại và rà theo checklist nộp
+  bài.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\main.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> check
+
+  Searched for 1 pattern, read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Tôi đã chạy lại python main.py: vẫn chạy được, kết quả giống lần trước. Nhưng
+  ngoài việc đổi dòng import, các mục tôi nêu lần trước chưa được sửa:
+
+  Mục: Thêm finally vào các tình huống lỗi (đề yêu cầu ở mục 10)
+  Trạng thái: Chưa có finally nào
+  ────────────────────────────────────────
+  Mục: except cụ thể từng loại lỗi
+  Trạng thái: Vẫn chỉ bắt BorrowingException chung
+  ────────────────────────────────────────
+  Mục: Đưa phần chuẩn bị ra ngoài try
+  Trạng thái: Chưa
+  ────────────────────────────────────────
+  Mục: Tình huống 5: trả máy chiếu có thật nhưng không thuộc phiếu
+  Trạng thái: Chưa
+  ────────────────────────────────────────
+  Mục: Luồng thành công: có một thiết bị chưa trả
+  Trạng thái: Chưa
+  ────────────────────────────────────────
+  Mục: Dấu cách ở models.py:20 (models.py#L20)
+  Trạng thái: Chưa
+  ────────────────────────────────────────
+  Mục: Đổi calculate_maintenance_cost → calculate_annual_maintenance_cost
+  Trạng thái: Chưa (models.py:113 (models.py#L113), 132 (models.py#L132), 142
+  (models.py#L142), 152 (models.py#L152), 199 (models.py#L199))
+  ────────────────────────────────────────
+  Mục: Đổi AirconditionerRemote → AirConditionerRemote
+  Trạng thái: Chưa (models.py:135 (models.py#L135), main.py:5 (main.py#L5), 29
+  (main.py#L29), 59 (main.py#L59))
+  ────────────────────────────────────────
+  Mục: Đổi mark_as_undermaintenance → mark_as_under_maintenance
+  Trạng thái: Chưa (models.py:119 (models.py#L119), main.py:60 (main.py#L60))
+
+  Có thể bạn chưa lưu file (Ctrl+S), hoặc đang sửa ở chỗ khác.
+
+  Lưu ý về import mới: liệt kê rõ từng tên như main.py:4-13 (main.py#L4-L13) là
+  cách tốt hơn import *. Nhưng khi thêm except cụ thể, bạn phải import thêm các
+  lớp ngoại lệ đó, nếu không sẽ báo NameError:
+
+  from models import (
+      AirConditionerRemote,
+      BorrowingException,
+      BorrowingSlip,
+      BorrowLimitExceededException,
+      ClassRoom,
+      DeviceAlreadyReturnedException,
+      DeviceNotInSlipException,
+      DeviceUnavailableException,
+      DuplicateDeviceException,
+      InvalidBorrowPeriodException,
+      InvalidReturnDateException,
+      Lecturer,
+      Microphone,
+      ProjectorRemote,
+      TeachingAssistant,
+  )
+
+  Thứ tự làm gợi ý:
+  1. Đổi 3 tên bằng F2.
+  2. Sửa dòng import như trên.
+  3. Viết lại 7 tình huống theo mẫu tình huống 3 ở lượt trước (chuẩn bị ngoài
+     try, except cụ thể, finally in trạng thái).
+
+  Lưu file rồi gõ "check".
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\main.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> check
+
+  Searched for 1 pattern, read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Mọi mục trong bảng lần trước đã xong. python main.py chạy hết, không lỗi, và
+  kết quả khớp với đề:
+
+  - Luồng thành công: có thêm điều hòa chưa trả. Danh sách hiển thị đúng 2 item
+    trả muộn (micro đã trả trễ, điều hòa quá hạn mà chưa trả), 1 item chưa trả,
+    tổng phí 40000.
+  - 7 tình huống ngoại lệ: mỗi tình huống có except đúng loại lỗi và có finally.
+    Phần chuẩn bị đã nằm ngoài try.
+  - Tình huống 5: máy chiếu đã là một thiết bị có thật nhưng không thuộc phiếu.
+  - Tên hàm, tên lớp, dấu cách: đã sửa hết, khớp với UML.
+
+  Một điểm nên làm thêm
+
+  Hiện tại finally chỉ in "Kết thúc tình huống X". Như vậy là có dùng finally,
+  nhưng chưa tận dụng nó để chứng minh tính nhất quán, một ý chính của đề (mục
+  9.2). Nên cho nó in trạng thái thiết bị và số item:
+
+      finally:
+          print(f"   -> {ac.device_id}: {ac.status.name}, số item trong phiếu:
+  {len(slip.items)}")
+
+  Khi đó người chấm sẽ thấy ngay, ví dụ ở tình huống 2: M3: AVAILABLE, số item
+  trong phiếu: 2. Thiết bị thứ ba không bị chuyển nhầm sang BORROWED, và phiếu
+  không bị thêm item. Làm tương tự cho các tình huống còn lại, với biến thiết bị
+  của từng tình huống:
+
+  ┌───────────────┬─────────────────┐
+  │  Tình huống   │ Thiết bị nên in │
+  ├───────────────┼─────────────────┤
+  │ 1             │ ac              │
+  ├───────────────┼─────────────────┤
+  │ 2             │ m3              │
+  ├───────────────┼─────────────────┤
+  │ 3, 4, 5, 6, 7 │ mic             │
+  └───────────────┴─────────────────┘
+
+  Mỗi tình huống cũng có thể thêm except BorrowingException as e: sau except cụ
+  thể, để làm lưới an toàn. Việc này không bắt buộc.
+
+  Checklist trước khi nộp
+
+  - [x] Kiểm tra hết rồi mới thay đổi trạng thái (đã kiểm chứng: sau cả 7 lỗi,
+    số item và trạng thái không đổi)
+  - [x] device_id và items không sửa được từ bên ngoài
+  - [x] calculate_annual_maintenance_cost của phòng không dùng isinstance
+  - [x] Tên trong code khớp với UML
+  - [ ] Cập nhật sơ đồ UML cho khớp những gì đã thêm hoặc đổi trong code:
+    - Device: các getter {readOnly}, mark_as_retired(), kiểu Decimal
+    - BorrowItem: calculate_late_fee(as_of), kèm note "Giả định: 10.000/ngày
+      trễ"
+    - BorrowingSlip: - _find_item(device_id)
+  - [ ] Chuẩn bị giải thích 2 điều bạn tự thêm: InvalidReturnDateException (đề
+    cho phép bổ sung) và mức phí trễ 10.000/ngày (đề không quy định)
+
+  Thêm phần in trạng thái vào finally và cập nhật UML là bài hoàn chỉnh.
+
+> <ide_opened_file>The user opened the file
+  c:\Users\HHUNG\Desktop\OOP\lab06\main.py in the IDE. This may or may not be
+  related to the current task.</ide_opened_file>
+
+> bạn fix cho tôi phần in trạng thái đi
+
+● Update(main.py)
+  ⎿  Added 1 line, removed 1 line
+      51      except DeviceUnavailableException as e:
+      52          print("1.", e)
+      53      finally:
+      54 -        print("   -> Kết thúc tình huống 1")                   
+      54 +        print(f"   -> {ac.device_id}: {ac.status.name}, số item
+         + trong phiếu: {len(slip.items)}")                              
+      55  
+      56      # 2. Trợ giảng mượn thiết bị thứ ba
+      57      slip = BorrowingSlip("PM03", ta, "B204", day)
+
+● Update(main.py)
+  ⎿  Added 1 line, removed 1 line
+      65      except BorrowLimitExceededException as e:
+      66          print("2.", e)
+      67      finally:
+      68 -        print("   -> Kết thúc tình huống 2")                   
+      68 +        print(f"   -> {m3.device_id}: {m3.status.name}, số item
+         + trong phiếu: {len(slip.items)}")                              
+      69  
+      70      # 3. Thêm một micro hai lần
+      71      mic = Microphone("MIC01", "Micro", 2020, Decimal("500000"),
+           True)
+
+● Update(main.py)
+  ⎿  Added 1 line, removed 1 line
+      76      except DuplicateDeviceException as e:
+      77          print("3.", e)
+      78      finally:
+      79 -        print("   -> Kết thúc tình huống 3")                   
+      79 +        print(f"   -> {mic.device_id}: {mic.status.name}, số it
+         +em trong phiếu: {len(slip.items)}")                            
+      80  
+      81      # 4. Mượn micro 3 ngày (tối đa 1 ngày)
+      82      mic = Microphone("MIC02", "Micro", 2020, Decimal("500000"),
+           True)
+
+● Update(main.py)
+  ⎿  Added 1 line, removed 1 line
+      86      except InvalidBorrowPeriodException as e:
+      87          print("4.", e)
+      88      finally:
+      89 -        print("   -> Kết thúc tình huống 4")                   
+      89 +        print(f"   -> {mic.device_id}: {mic.status.name}, số it
+         +em trong phiếu: {len(slip.items)}")                            
+      90  
+      91      # 5. Trả máy chiếu có thật nhưng không thuộc phiếu
+      92      pj = ProjectorRemote("PJ01", "Điều khiển máy chiếu", 2022, 
+          Decimal("200000"), "Epson")
+
+● Update(main.py)
+  ⎿  Added 2 lines, removed 1 line
+       98      except DeviceNotInSlipException as e:
+       99          print("5.", e)
+      100      finally:
+      101 -        print("   -> Kết thúc tình huống 5")                  
+      101 +        print(f"   -> {mic.device_id}: {mic.status.name}, {pj.
+          +device_id}: {pj.status.name}, "                               
+      102 +              f"số item trong phiếu: {len(slip.items)}")      
+      103  
+      104      # 6. Trả một thiết bị hai lần
+      105      mic = Microphone("MIC03", "Micro", 2020, Decimal("500000")
+           , True)
+
+● Update(main.py)
+  ⎿  Added 3 lines, removed 1 line
+      111      except DeviceAlreadyReturnedException as e:
+      112          print("6.", e)
+      113      finally:
+      114 -        print("   -> Kết thúc tình huống 6")                  
+      114 +        item = slip.items[0]                                  
+      115 +        print(f"   -> {mic.device_id}: {mic.status.name}, ngày
+          + trả vẫn là {item.returned_date}, "                           
+      116 +              f"số item trong phiếu: {len(slip.items)}")      
+      117  
+      118      # 7. Ngày trả trước ngày mượn
+      119      mic = Microphone("MIC04", "Micro", 2020, Decimal("500000")
+           , True)
+
+● Update(main.py)
+  ⎿  Added 3 lines, removed 1 line
+      124      except InvalidReturnDateException as e:
+      125          print("7.", e)
+      126      finally:
+      127 -        print("   -> Kết thúc tình huống 7")                  
+      127 +        item = slip.items[0]                                  
+      128 +        print(f"   -> {mic.device_id}: {mic.status.name}, đã t
+          +rả: {item.is_returned()}, "                                   
+      129 +              f"số item trong phiếu: {len(slip.items)}")      
+      130  
+      131  
+      132  if __name__ == "__main__":
+
+● The file had other changes on disk; let me read it to make sure the edits fit.
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Tôi đã sửa 7 dòng finally trong main.py (main.py#L53-L129): mỗi dòng giờ in
+  trạng thái thiết bị và số item, thay cho câu "Kết thúc tình huống X". Chạy
+  python main.py thì không lỗi, và kết quả cho thấy sau mỗi lỗi dữ liệu không bị
+  thay đổi:
+
+  ┌─────┬────────────────────────────────┬──────────────────────────────────┐
+  │  #  │         Kết quả in ra          │             Ý nghĩa              │
+  ├─────┼────────────────────────────────┼──────────────────────────────────┤
+  │ 1   │ AC01: UNDER_MAINTENANCE, số    │ Điều hòa không bị chuyển nhầm    │
+  │     │ item: 0                        │ sang mượn, phiếu vẫn trống       │
+  ├─────┼────────────────────────────────┼──────────────────────────────────┤
+  │ 2   │ M3: AVAILABLE, số item: 2      │ Thiết bị thứ 3 vẫn sẵn sàng,     │
+  │     │                                │ phiếu vẫn chỉ có 2 item          │
+  ├─────┼────────────────────────────────┼──────────────────────────────────┤
+  │ 3   │ MIC01: BORROWED, số item: 1    │ Micro chỉ có 1 item, không bị    │
+  │     │                                │ thêm trùng                       │
+  ├─────┼────────────────────────────────┼──────────────────────────────────┤
+  │ 4   │ MIC02: AVAILABLE, số item: 0   │ Mượn quá hạn bị từ chối, micro   │
+  │     │                                │ không bị khóa                    │
+  ├─────┼────────────────────────────────┼──────────────────────────────────┤
+  │ 5   │ MIC05: BORROWED, PJ01:         │ Trả sai thiết bị không ảnh hưởng │
+  │     │ AVAILABLE, số item: 1          │  micro đang mượn hay máy chiếu   │
+  ├─────┼────────────────────────────────┼──────────────────────────────────┤
+  │ 6   │ MIC03: AVAILABLE, ngày trả vẫn │ Lần trả thứ hai không ghi đè     │
+  │     │  là 2026-10-01                 │ ngày trả cũ                      │
+  ├─────┼────────────────────────────────┼──────────────────────────────────┤
+  │ 7   │ MIC04: BORROWED, đã trả: False │ Ngày trả sai không làm item bị   │
+  │     │                                │ đánh dấu đã trả                  │
+  └─────┴────────────────────────────────┴──────────────────────────────────┘
+
+  Ở tình huống 5, ngoài micro tôi in thêm trạng thái máy chiếu. Ở tình huống 6
+  và 7, tôi in thêm ngày trả và trạng thái đã trả của item, vì đó là dữ liệu mà
+  các lỗi này có nguy cơ làm hỏng.
+
+  Phần code của bài đã hoàn chỉnh. Việc còn lại là cập nhật sơ đồ UML cho khớp
+  code, như checklist ở lượt trước.
+
+> \export
+
+● \export không phải lệnh tôi chạy được. Có thể bạn định gõ /export: đó là lệnh
+  có sẵn của Claude Code, dùng để xuất toàn bộ cuộc trò chuyện này ra file hoặc
+  clipboard.
+
+  Gõ lại với dấu gạch chéo xuôi / ở đầu:
+
+  /export
+
+  Nếu ý bạn là xuất thứ khác (ví dụ gom code bài lab thành một file để nộp, hoặc
+  xuất sơ đồ UML), hãy cho tôi biết cụ thể.
